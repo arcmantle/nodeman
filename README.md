@@ -1,5 +1,9 @@
 # nodeman
 
+<p align="center">
+  <img src="assets/logo.svg" alt="nodeman logo" width="160" />
+</p>
+
 A fast, cross-platform Node.js version manager written in Go.
 
 ## Features

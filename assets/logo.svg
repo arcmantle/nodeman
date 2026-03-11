@@ -1,0 +1,36 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" fill="none">
+	<defs>
+		<linearGradient id="grad" x1="0%" y1="0%" x2="100%" y2="100%">
+			<stop offset="0%" stop-color="#2D3436" />
+			<stop offset="100%" stop-color="#1a1a1a" />
+		</linearGradient>
+	</defs>
+
+	<!-- Dark circle -->
+	<circle cx="256" cy="256" r="240" fill="url(#grad)" />
+
+	<!-- Three stacked layers — like version layers, the top one is "active" -->
+	<!-- Bottom layer (furthest back) -->
+	<ellipse cx="256" cy="330" rx="120" ry="32" fill="none" stroke="#555"
+		stroke-width="5" />
+	<path d="M136,330 L136,300 Q136,268 256,268 Q376,268 376,300 L376,330"
+		fill="none" stroke="#555" stroke-width="5" />
+
+	<!-- Middle layer -->
+	<ellipse cx="256" cy="270" rx="120" ry="32" fill="none" stroke="#999"
+		stroke-width="5" />
+	<path d="M136,270 L136,240 Q136,208 256,208 Q376,208 376,240 L376,270"
+		fill="none" stroke="#999" stroke-width="5" />
+
+	<!-- Top layer (active) — filled and bright -->
+	<path d="M136,210 L136,180 Q136,148 256,148 Q376,148 376,180 L376,210"
+		fill="#4ADE80" fill-opacity="0.15" stroke="#4ADE80" stroke-width="5" />
+	<ellipse cx="256" cy="210" rx="120" ry="32" fill="#4ADE80" fill-opacity="0.2"
+		stroke="#4ADE80" stroke-width="5" />
+
+	<!-- Small arrow pointing down into the stack — "selecting" -->
+	<line x1="256" y1="90" x2="256" y2="130" stroke="#4ADE80" stroke-width="6"
+		stroke-linecap="round" />
+	<polyline points="240,118 256,134 272,118" fill="none" stroke="#4ADE80"
+		stroke-width="6" stroke-linecap="round" stroke-linejoin="round" />
+</svg>
