@@ -68,6 +68,7 @@ make setup    # Builds, installs shims, and configures PATH
 | `nodeman clean` | Detect and remove external Node.js installations |
 | `nodeman doctor` | Diagnose configuration issues |
 | `nodeman upgrade` | Upgrade nodeman to the latest release |
+| `nodeman self-uninstall` | Remove nodeman and all its data from your system |
 | `nodeman dir` | Print the nodeman root directory path |
 | `nodeman dir shims` | Print the shims directory path |
 | `nodeman dir versions` | Print the versions directory path |
@@ -273,6 +274,18 @@ nodeman upgrade
 ```
 
 Downloads the latest release from GitHub and replaces the current binary.
+
+## Uninstalling
+
+To completely remove nodeman from your system:
+
+```bash
+nodeman self-uninstall
+```
+
+This removes the `~/.nodeman` directory (shims, installed Node.js versions,
+config), cleans PATH entries from your shell profile, and removes completion
+configuration. Use `--yes` to skip the confirmation prompt.
 
 ## Shell Completions
 

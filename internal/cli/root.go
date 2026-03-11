@@ -27,6 +27,7 @@ func NewRootCmd(version string) *cobra.Command {
 		newDoctorCmd(),
 		newGlobalsCmd(),
 		newUpgradeCmd(version),
+		newSelfUninstallCmd(),
 	)
 
 	return root
