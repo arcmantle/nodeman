@@ -95,6 +95,15 @@ func checkKnownPaths(shimsDir string) []Installation {
 				filepath.Join(home, ".nvm/current/bin/node"),
 				filepath.Join(home, ".volta/bin/node"),
 			)
+			// Check all nvm versions
+			nvmDir := filepath.Join(home, ".nvm/versions/node")
+			if entries, err := os.ReadDir(nvmDir); err == nil {
+				for _, e := range entries {
+					if e.IsDir() {
+						candidates = append(candidates, filepath.Join(nvmDir, e.Name(), "bin/node"))
+					}
+				}
+			}
 			// Check fnm versions
 			fnmDir := filepath.Join(home, ".fnm/node-versions")
 			if entries, err := os.ReadDir(fnmDir); err == nil {
@@ -116,6 +125,15 @@ func checkKnownPaths(shimsDir string) []Installation {
 				filepath.Join(home, ".nvm/current/bin/node"),
 				filepath.Join(home, ".volta/bin/node"),
 			)
+			// Check all nvm versions
+			nvmDir := filepath.Join(home, ".nvm/versions/node")
+			if entries, err := os.ReadDir(nvmDir); err == nil {
+				for _, e := range entries {
+					if e.IsDir() {
+						candidates = append(candidates, filepath.Join(nvmDir, e.Name(), "bin/node"))
+					}
+				}
+			}
 		}
 	case "windows":
 		programFiles := os.Getenv("ProgramFiles")

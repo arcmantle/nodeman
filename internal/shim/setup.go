@@ -4,9 +4,12 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"runtime"
+	"strings"
 
+	"github.com/roen/nodeman/internal/config"
 	"github.com/roen/nodeman/internal/discover"
 	"github.com/roen/nodeman/internal/platform"
 )
@@ -67,7 +70,96 @@ func Setup() error {
 	reportPathStatus(shimsDir)
 
 	printPathInstructions(shimsDir)
+
+	// Configure shell completions
+	configureCompletions(shimsDir)
+
+	// Sync shims for globally installed packages
+	if synced, err := SyncShims(); err == nil && synced > 0 {
+		fmt.Printf("Created %d shim(s) for globally installed packages.\n", synced)
+	}
+
 	return nil
+}
+
+// SyncShims scans the active Node.js version's bin directory and creates
+// shim hardlinks/copies in the shims directory for any binaries that don't
+// already have one. This makes globally installed packages (e.g., pnpm, tsc)
+// available on PATH. Returns the number of new shims created or updated.
+func SyncShims() (int, error) {
+	cfg, err := config.Load()
+	if err != nil || cfg.ActiveVersion == "" {
+		return 0, nil
+	}
+
+	versionsDir, err := platform.VersionsDir()
+	if err != nil {
+		return 0, err
+	}
+
+	shimsDir, err := platform.ShimsDir()
+	if err != nil {
+		return 0, err
+	}
+
+	binDir := platform.BinDir(filepath.Join(versionsDir, cfg.ActiveVersion))
+	entries, err := os.ReadDir(binDir)
+	if err != nil {
+		return 0, nil
+	}
+
+	// Find the nodeman binary in shimsDir to use as the shim source
+	suffix := platform.ExeSuffix()
+	shimSource := filepath.Join(shimsDir, "nodeman"+suffix)
+	if _, err := os.Stat(shimSource); os.IsNotExist(err) {
+		return 0, fmt.Errorf("nodeman shim not found in %s — run 'nodeman setup' first", shimsDir)
+	}
+	shimSource, _ = filepath.EvalSymlinks(shimSource)
+
+	sourceInfo, err := os.Stat(shimSource)
+	if err != nil {
+		return 0, err
+	}
+
+	// Names we should never create shims for
+	skip := map[string]bool{
+		"nodeman": true,
+	}
+
+	synced := 0
+	for _, entry := range entries {
+		if entry.IsDir() {
+			continue
+		}
+
+		name := entry.Name()
+		name = strings.TrimSuffix(name, ".exe")
+
+		if skip[name] {
+			continue
+		}
+
+		shimPath := filepath.Join(shimsDir, name+suffix)
+
+		// If shim exists, check if it's up to date (same file as nodeman)
+		if existingInfo, err := os.Stat(shimPath); err == nil {
+			if os.SameFile(sourceInfo, existingInfo) {
+				continue // already points to the current nodeman binary
+			}
+			// Stale shim — remove and recreate
+			os.Remove(shimPath)
+		}
+
+		// Create a new shim
+		if err := os.Link(shimSource, shimPath); err != nil {
+			if err := copyFile(shimSource, shimPath); err != nil {
+				continue
+			}
+		}
+		synced++
+	}
+
+	return synced, nil
 }
 
 // reportExistingInstalls scans for Node.js installations outside nodeman and prints them.
@@ -141,16 +233,234 @@ func copyFile(src, dst string) error {
 }
 
 func printPathInstructions(shimsDir string) {
-	fmt.Println()
-	fmt.Println("Add the shims directory to your PATH (if not already done):")
-	fmt.Println()
-
-	switch runtime.GOOS {
-	case "windows":
-		fmt.Printf("  setx PATH \"%s;%%PATH%%\"\n", shimsDir)
-	default:
-		fmt.Printf("  # Add to your shell profile (~/.bashrc, ~/.zshrc, etc.):\n")
-		fmt.Printf("  export PATH=\"%s:$PATH\"\n", shimsDir)
+	inPath, isFirst, _ := discover.ShimsInPath()
+	if inPath && isFirst {
+		return
 	}
-	fmt.Println()
+
+	if runtime.GOOS == "windows" {
+		addToWindowsPath(shimsDir)
+		return
+	}
+
+	// Auto-configure shell profile on Unix systems
+	profilePath := detectShellProfile()
+	if profilePath == "" {
+		fmt.Println()
+		fmt.Println("Could not detect shell profile. Add this to your shell config manually:")
+		fmt.Printf("  export PATH=\"%s:$PATH\"\n", shimsDir)
+		fmt.Println()
+		return
+	}
+
+	exportLine := fmt.Sprintf("export PATH=\"%s:$PATH\"", shimsDir)
+
+	// Check if already present in profile
+	if content, err := os.ReadFile(profilePath); err == nil {
+		if strings.Contains(string(content), shimsDir) {
+			fmt.Printf("\nPATH entry already exists in %s\n", profilePath)
+			fmt.Println("Restart your terminal or run: source", profilePath)
+			return
+		}
+	}
+
+	// Append to profile
+	f, err := os.OpenFile(profilePath, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o644)
+	if err != nil {
+		fmt.Printf("\nCould not write to %s: %v\n", profilePath, err)
+		fmt.Println("Add this manually:")
+		fmt.Printf("  %s\n", exportLine)
+		return
+	}
+	defer f.Close()
+
+	if _, err := fmt.Fprintf(f, "\n# nodeman - Node.js version manager\n%s\n", exportLine); err != nil {
+		fmt.Printf("\nFailed to write to %s: %v\n", profilePath, err)
+		return
+	}
+
+	fmt.Printf("\nAdded nodeman to PATH in %s\n", profilePath)
+	fmt.Println("Restart your terminal or run: source", profilePath)
+}
+
+// addToWindowsPath adds shimsDir to the user-level PATH environment variable on Windows.
+func addToWindowsPath(shimsDir string) {
+	// Read current user PATH
+	currentPath := os.Getenv("PATH")
+	if strings.Contains(strings.ToLower(currentPath), strings.ToLower(shimsDir)) {
+		fmt.Println("\nPATH already contains", shimsDir)
+		fmt.Println("Restart your terminal for changes to take effect.")
+		return
+	}
+
+	// Use PowerShell to read and update the user-level PATH in the registry
+	// This is the standard way to persistently modify PATH on Windows
+	checkCmd := exec.Command("powershell", "-NoProfile", "-Command",
+		`[Environment]::GetEnvironmentVariable('Path', 'User')`)
+	userPathBytes, err := checkCmd.Output()
+	if err != nil {
+		fmt.Println("\nCould not read user PATH. Add this directory to PATH manually:")
+		fmt.Println(" ", shimsDir)
+		return
+	}
+
+	userPath := strings.TrimSpace(string(userPathBytes))
+	if strings.Contains(strings.ToLower(userPath), strings.ToLower(shimsDir)) {
+		fmt.Println("\nPATH already contains", shimsDir)
+		fmt.Println("Restart your terminal for changes to take effect.")
+		return
+	}
+
+	// Prepend shimsDir so it takes priority
+	var newPath string
+	if userPath == "" {
+		newPath = shimsDir
+	} else {
+		newPath = shimsDir + ";" + userPath
+	}
+
+	setCmd := exec.Command("powershell", "-NoProfile", "-Command",
+		fmt.Sprintf(`[Environment]::SetEnvironmentVariable('Path', '%s', 'User')`,
+			strings.ReplaceAll(newPath, "'", "''")))
+	if err := setCmd.Run(); err != nil {
+		fmt.Println("\nCould not update user PATH. Add this directory to PATH manually:")
+		fmt.Println(" ", shimsDir)
+		return
+	}
+
+	fmt.Println("\nAdded nodeman to user PATH.")
+	fmt.Println("Restart your terminal for changes to take effect.")
+}
+
+// detectShellProfile returns the path to the user's shell profile file.
+func detectShellProfile() string {
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return ""
+	}
+
+	// Check SHELL env var first
+	shell := os.Getenv("SHELL")
+	switch {
+	case strings.HasSuffix(shell, "/zsh"):
+		return filepath.Join(home, ".zshrc")
+	case strings.HasSuffix(shell, "/bash"):
+		// Prefer .bashrc on Linux, .bash_profile on macOS
+		if runtime.GOOS == "darwin" {
+			return filepath.Join(home, ".bash_profile")
+		}
+		return filepath.Join(home, ".bashrc")
+	case strings.HasSuffix(shell, "/fish"):
+		return filepath.Join(home, ".config", "fish", "config.fish")
+	}
+
+	// Fallback: check which files exist
+	for _, name := range []string{".zshrc", ".bashrc", ".bash_profile", ".profile"} {
+		p := filepath.Join(home, name)
+		if _, err := os.Stat(p); err == nil {
+			return p
+		}
+	}
+
+	return ""
+}
+
+// configureCompletions sets up shell completions for nodeman.
+func configureCompletions(shimsDir string) {
+	if runtime.GOOS == "windows" {
+		// PowerShell completions require manual setup
+		return
+	}
+
+	shell := os.Getenv("SHELL")
+	nodeman := filepath.Join(shimsDir, "nodeman"+platform.ExeSuffix())
+
+	switch {
+	case strings.HasSuffix(shell, "/zsh"):
+		configureZshCompletions(nodeman)
+	case strings.HasSuffix(shell, "/bash"):
+		configureBashCompletions(nodeman)
+	case strings.HasSuffix(shell, "/fish"):
+		configureFishCompletions(nodeman)
+	}
+}
+
+func configureZshCompletions(nodeman string) {
+	profilePath := detectShellProfile()
+	if profilePath == "" {
+		return
+	}
+
+	completionLine := `eval "$(nodeman completion zsh)"`
+
+	if content, err := os.ReadFile(profilePath); err == nil {
+		if strings.Contains(string(content), "nodeman completion zsh") {
+			return // already configured
+		}
+	}
+
+	f, err := os.OpenFile(profilePath, os.O_APPEND|os.O_WRONLY, 0o644)
+	if err != nil {
+		return
+	}
+	defer f.Close()
+
+	fmt.Fprintf(f, "\n# nodeman shell completions\n%s\n", completionLine)
+	fmt.Println("Shell completions configured in", profilePath)
+}
+
+func configureBashCompletions(nodeman string) {
+	profilePath := detectShellProfile()
+	if profilePath == "" {
+		return
+	}
+
+	completionLine := `eval "$(nodeman completion bash)"`
+
+	if content, err := os.ReadFile(profilePath); err == nil {
+		if strings.Contains(string(content), "nodeman completion bash") {
+			return // already configured
+		}
+	}
+
+	f, err := os.OpenFile(profilePath, os.O_APPEND|os.O_WRONLY, 0o644)
+	if err != nil {
+		return
+	}
+	defer f.Close()
+
+	fmt.Fprintf(f, "\n# nodeman shell completions\n%s\n", completionLine)
+	fmt.Println("Shell completions configured in", profilePath)
+}
+
+func configureFishCompletions(nodeman string) {
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return
+	}
+
+	completionsDir := filepath.Join(home, ".config", "fish", "completions")
+	completionsFile := filepath.Join(completionsDir, "nodeman.fish")
+
+	// Check if already configured
+	if _, err := os.Stat(completionsFile); err == nil {
+		return
+	}
+
+	if err := os.MkdirAll(completionsDir, 0o755); err != nil {
+		return
+	}
+
+	// Generate completions and write to file
+	cmd := exec.Command(nodeman, "completion", "fish")
+	output, err := cmd.Output()
+	if err != nil {
+		return
+	}
+
+	if err := os.WriteFile(completionsFile, output, 0o644); err != nil {
+		return
+	}
+
+	fmt.Println("Shell completions configured in", completionsFile)
 }

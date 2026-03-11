@@ -15,7 +15,7 @@ import (
 )
 
 // Exec replaces the current process with the real binary for the given shim name.
-// shimName is one of: "node", "npm", "npx", "corepack".
+// shimName is one of: "node", "npm", "npx", "corepack", or any globally installed binary.
 func Exec(shimName string, args []string) error {
 	// Check for NODEMAN_VERSION env override
 	activeVersion := os.Getenv("NODEMAN_VERSION")
@@ -60,10 +60,61 @@ func Exec(shimName string, args []string) error {
 		return fmt.Errorf("%s not found for Node.js %s at %s", shimName, activeVersion, binaryPath)
 	}
 
+	// If this is npm/npx with a global install/uninstall, run as a child process
+	// so we can sync shims afterward.
+	if isGlobalNpmCommand(shimName, args) {
+		return execAndSync(binaryPath, args)
+	}
+
 	if runtime.GOOS == "windows" {
 		return execWindows(binaryPath, args)
 	}
 	return execUnix(binaryPath, args)
+}
+
+// isGlobalNpmCommand checks if this is an npm/npx command that modifies global packages.
+func isGlobalNpmCommand(shimName string, args []string) bool {
+	if shimName != "npm" && shimName != "npx" {
+		return false
+	}
+	hasGlobalFlag := false
+	hasInstallCmd := false
+	for _, arg := range args[1:] {
+		if arg == "-g" || arg == "--global" {
+			hasGlobalFlag = true
+		}
+		if arg == "install" || arg == "i" || arg == "add" ||
+			arg == "uninstall" || arg == "remove" || arg == "rm" || arg == "un" {
+			hasInstallCmd = true
+		}
+		// Stop scanning at -- separator
+		if arg == "--" {
+			break
+		}
+	}
+	return hasGlobalFlag && hasInstallCmd
+}
+
+// execAndSync runs the binary as a child process and syncs shims after it completes.
+func execAndSync(binaryPath string, args []string) error {
+	cmd := exec.Command(binaryPath, args[1:]...)
+	cmd.Stdin = os.Stdin
+	cmd.Stdout = os.Stdout
+	cmd.Stderr = os.Stderr
+	err := cmd.Run()
+
+	// Sync shims regardless of exit code — a partial install may have added binaries
+	SyncShims()
+
+	if err != nil {
+		if exitErr, ok := err.(*exec.ExitError); ok {
+			os.Exit(exitErr.ExitCode())
+		}
+		fmt.Fprintf(os.Stderr, "nodeman: %s\n", err)
+		os.Exit(1)
+	}
+	os.Exit(0)
+	return nil // unreachable
 }
 
 func execUnix(binaryPath string, args []string) error {

@@ -6,9 +6,12 @@ A fast, cross-platform Node.js version manager written in Go.
 
 - **Install & manage** multiple Node.js versions from nodejs.org
 - **Switch versions** instantly with shim-based forwarding (no shell hooks needed)
-- **Shared global packages** — automatically reinstall tracked npm packages when switching versions
+- **Automatic global package shims** — `npm install -g` packages are immediately available on PATH
+- **Tracked global packages** — reinstall a set of packages automatically when switching versions
+- **Clean up old installations** — detect and remove Node.js from Homebrew, nvm, fnm, Volta, etc.
 - **Cross-platform** — macOS (arm64/amd64), Linux (arm64/amd64), Windows (amd64)
 - **Single binary** — no runtime dependencies
+- **Automatic setup** — configures PATH and shell completions for you
 - **Proxy support** — respects `HTTP_PROXY`, `HTTPS_PROXY`, `NO_PROXY`
 - **Version file support** — reads `.nvmrc` and `.node-version` files
 - **Self-upgrade** — update nodeman with a single command
@@ -16,14 +19,16 @@ A fast, cross-platform Node.js version manager written in Go.
 ## Quick Start
 
 ```bash
-# Install nodeman (build from source)
-go install github.com/roen/nodeman/cmd/nodeman@latest
+# Download the latest release for your platform from:
+# https://github.com/RoenLie/nodeman/releases
 
-# Create shims and configure PATH
-nodeman setup
+# Make it executable (macOS/Linux)
+chmod +x nodeman
 
-# Add to your shell profile (as printed by setup):
-export PATH="$HOME/.nodeman/shims:$PATH"
+# Run setup — installs shims, configures PATH, and sets up shell completions
+./nodeman setup
+
+# Restart your terminal, then:
 
 # Install the latest LTS Node.js
 nodeman install lts
@@ -35,6 +40,14 @@ nodeman use lts
 node --version
 ```
 
+### Building from Source
+
+```bash
+git clone https://github.com/RoenLie/nodeman.git
+cd nodeman
+make setup    # Builds, installs shims, and configures PATH
+```
+
 ## Commands
 
 | Command | Description |
@@ -44,13 +57,22 @@ node --version
 | `nodeman use [version]` | Set the active version (installs if needed) |
 | `nodeman use --previous` | Switch back to the previously active version |
 | `nodeman ls` | List installed versions |
-| `nodeman ls-remote [--lts]` | List available versions from nodejs.org |
+| `nodeman ls-remote` | List latest version per major release (18+) |
+| `nodeman ls-remote --full` | List all available versions |
+| `nodeman ls-remote <major>` | List all versions for a specific major (e.g. `22`) |
+| `nodeman ls-remote --lts` | List only LTS versions |
 | `nodeman ls-remote --no-cache` | Bypass the 1-hour version cache |
 | `nodeman current` | Show the active version |
-| `nodeman setup` | Create shims, detect existing Node, validate PATH |
+| `nodeman setup` | Create shims, configure PATH and completions, detect existing Node |
 | `nodeman adopt` | Import existing system Node.js into nodeman |
+| `nodeman clean` | Detect and remove external Node.js installations |
 | `nodeman doctor` | Diagnose configuration issues |
 | `nodeman upgrade` | Upgrade nodeman to the latest release |
+| `nodeman dir` | Print the nodeman root directory path |
+| `nodeman dir shims` | Print the shims directory path |
+| `nodeman dir versions` | Print the versions directory path |
+| `nodeman dir active` | Print the active version's directory path |
+| `nodeman shims sync` | Manually sync shims for globally installed packages |
 | `nodeman globals list` | List tracked global packages |
 | `nodeman globals add <pkg>` | Track a global package |
 | `nodeman globals remove <pkg>` | Untrack a global package |
@@ -110,8 +132,97 @@ nodeman adopt --set-active 22
 ```
 
 `nodeman setup` will also automatically detect existing installations and remind
-you to adopt them. After adopting, you can safely uninstall the original
-(e.g. `brew uninstall node`).
+you to adopt them. After adopting, you can remove the original with `nodeman clean`.
+
+## Cleaning Up Old Installations
+
+Once you've migrated to nodeman, remove leftover Node.js installations:
+
+```bash
+nodeman clean
+```
+
+This scans for Node.js installed via Homebrew, nvm, fnm, Volta, Snap, the
+official installer, and other common sources. For each one found, it shows
+the removal action and asks for confirmation.
+
+```bash
+# Skip confirmation prompts
+nodeman clean --yes
+```
+
+Supported removal methods:
+- **Homebrew** — runs `brew uninstall node`
+- **nvm / fnm / Volta** — removes their Node.js version directories
+- **Snap** — runs `snap remove node`
+- **Official installer** — removes files from `/usr/local` (macOS) or runs the MSI uninstaller (Windows)
+
+## Global Packages
+
+### Automatic Shim Sync
+
+When you install a package globally with `npm install -g`, nodeman automatically
+creates a shim for it so the command is available on PATH immediately — no
+restart or manual step needed.
+
+```bash
+npm install -g pnpm
+pnpm --version    # Works immediately
+```
+
+If you need to manually refresh shims (e.g. after installing packages outside
+of npm), run:
+
+```bash
+nodeman shims sync
+```
+
+### Tracked Globals
+
+Track packages you want available across all Node.js versions:
+
+```bash
+nodeman globals add typescript eslint prettier
+```
+
+When you switch versions with `nodeman use`, all tracked packages are
+automatically reinstalled with the new version's npm.
+
+## Browsing Remote Versions
+
+By default, `ls-remote` shows the latest version in each major release line
+(18 and above), keeping the output concise:
+
+```bash
+nodeman ls-remote
+# v18.20.8  (LTS: Hydrogen)
+# v20.19.2  (LTS: Iron)
+# v22.16.0  (LTS: Jod)
+# v24.14.0
+```
+
+To see every available version:
+
+```bash
+nodeman ls-remote --full
+```
+
+To see all versions for a specific major:
+
+```bash
+nodeman ls-remote 22
+```
+
+## Directory Paths
+
+Print paths to nodeman's directories for use in scripts:
+
+```bash
+nodeman dir              # ~/.nodeman
+nodeman dir shims        # ~/.nodeman/shims
+nodeman dir versions     # ~/.nodeman/versions
+nodeman dir active       # ~/.nodeman/versions/<active version>
+```
 
 ## Diagnostics
 
@@ -123,8 +234,14 @@ nodeman doctor
 # ✓ Active version: 22.14.0
 # ✓ 3 version(s) installed
 # ✓ Shims directory exists
-# ✓ Shims are on PATH
-# ✓ node shim → Node.js v22.14.0
+# ✓ Core shims: node, npm, npx, corepack
+# ✓ PATH priority: shims come first
+# ✓ which node → ~/.nodeman/shims/node
+# ✓ which npm → ~/.nodeman/shims/npm
+# ✓ node v22.14.0
+# ✓ npm 10.9.2
+# ✓ No conflicting installations
+# ✓ Completions: configured
 ```
 
 ## Proxy Support
@@ -159,7 +276,8 @@ Downloads the latest release from GitHub and replaces the current binary.
 
 ## Shell Completions
 
-Cobra provides built-in completion support. Add to your shell profile:
+`nodeman setup` automatically configures tab completions for your shell.
+If you need to set them up manually:
 
 **Bash:**
 ```bash
@@ -173,8 +291,6 @@ echo 'eval "$(nodeman completion zsh)"' >> ~/.zshrc
 
 **Fish:**
 ```fish
-nodeman completion fish | source
-# To make persistent:
 nodeman completion fish > ~/.config/fish/completions/nodeman.fish
 ```
 
@@ -188,24 +304,18 @@ nodeman completion powershell | Out-String | Invoke-Expression
 
 ### Shims
 
-When you run `nodeman setup`, it creates small shim binaries (`node`, `npm`, `npx`, `corepack`) in `~/.nodeman/shims/`. These are copies of the `nodeman` binary itself.
+When you run `nodeman setup`, it creates shim binaries in `~/.nodeman/shims/`.
+These are hardlinked copies of the `nodeman` binary itself.
 
-When invoked as `node` (or `npm`, etc.), `nodeman` detects the invocation name, reads the active version from `~/.nodeman/config.json`, and replaces itself with the real binary using `exec`.
+When invoked as `node` (or `npm`, `npx`, `pnpm`, etc.), nodeman detects the
+invocation name, reads the active version from `~/.nodeman/config.json`, and
+replaces itself with the real binary using `exec`.
 
 This means:
 - No shell hooks or `eval` needed
 - Works with any shell (bash, zsh, fish, PowerShell, cmd)
 - Zero overhead once exec'd — the shim is replaced by the real binary
-
-### Global Packages
-
-Track packages you want available across all Node.js versions:
-
-```bash
-nodeman globals add typescript eslint prettier
-```
-
-When you switch versions with `nodeman use`, all tracked packages are automatically reinstalled with the new version's npm.
+- Any globally installed package gets a shim automatically
 
 ## Directory Structure
 
@@ -220,6 +330,7 @@ When you switch versions with `nodeman use`, all tracked packages are automatica
 │   ├── npm
 │   ├── npx
 │   ├── corepack
+│   ├── pnpm           # Auto-created for global packages
 │   └── nodeman
 └── versions/          # Installed Node.js versions
     ├── 22.14.0/
@@ -231,20 +342,17 @@ When you switch versions with `nodeman use`, all tracked packages are automatica
 
 ```bash
 # Clone
-git clone https://github.com/roen/nodeman.git
+git clone https://github.com/RoenLie/nodeman.git
 cd nodeman
 
-# Build for current platform
-make build
+# Build and install (creates shims + configures PATH)
+make setup
+
+# Or just build without installing
+make build    # Output in dist/
 
 # Build for all platforms
 make all
-
-# Create a tagged release build
-make release
-
-# Output in dist/
-ls dist/
 ```
 
 ## Cross-Compilation Targets

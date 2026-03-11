@@ -5,6 +5,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strings"
 
 	"github.com/roen/nodeman/internal/config"
@@ -159,6 +160,9 @@ func runDoctor() error {
 		}
 	}
 
+	// 8. Check shell completions
+	results = append(results, checkCompletions()...)
+
 	// Print results
 	fmt.Println("nodeman doctor")
 	fmt.Println(strings.Repeat("─", 60))
@@ -181,4 +185,43 @@ func runDoctor() error {
 	}
 
 	return nil
+}
+
+// checkCompletions verifies that shell completions are configured.
+func checkCompletions() []checkResult {
+	shell := os.Getenv("SHELL")
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return []checkResult{{"Completions", false, "cannot determine home directory"}}
+	}
+
+	switch {
+	case strings.HasSuffix(shell, "/zsh"):
+		return checkProfileContains(home, ".zshrc", "nodeman completion zsh")
+	case strings.HasSuffix(shell, "/bash"):
+		if runtime.GOOS == "darwin" {
+			return checkProfileContains(home, ".bash_profile", "nodeman completion bash")
+		}
+		return checkProfileContains(home, ".bashrc", "nodeman completion bash")
+	case strings.HasSuffix(shell, "/fish"):
+		fishFile := filepath.Join(home, ".config", "fish", "completions", "nodeman.fish")
+		if _, err := os.Stat(fishFile); err == nil {
+			return []checkResult{{"Completions", true, fishFile}}
+		}
+		return []checkResult{{"Completions", false, "missing — run 'nodeman setup'"}}
+	default:
+		return []checkResult{{"Completions", false, fmt.Sprintf("unknown shell %q — configure manually", shell)}}
+	}
+}
+
+func checkProfileContains(home, profileName, needle string) []checkResult {
+	profilePath := filepath.Join(home, profileName)
+	content, err := os.ReadFile(profilePath)
+	if err != nil {
+		return []checkResult{{"Completions", false, fmt.Sprintf("%s not found — run 'nodeman setup'", profileName)}}
+	}
+	if strings.Contains(string(content), needle) {
+		return []checkResult{{"Completions", true, fmt.Sprintf("configured in ~/%s", profileName)}}
+	}
+	return []checkResult{{"Completions", false, fmt.Sprintf("not found in ~/%s — run 'nodeman setup'", profileName)}}
 }

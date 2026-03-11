@@ -8,6 +8,7 @@ import (
 	"github.com/roen/nodeman/internal/config"
 	"github.com/roen/nodeman/internal/globals"
 	"github.com/roen/nodeman/internal/platform"
+	"github.com/roen/nodeman/internal/shim"
 	"github.com/roen/nodeman/internal/versions"
 	"github.com/spf13/cobra"
 )
@@ -126,6 +127,11 @@ Accepts the same version specifiers as 'install':
 				if err := globals.ReinstallAll(binDir); err != nil {
 					fmt.Printf("Warning: failed to reinstall globals: %s\n", err)
 				}
+			}
+
+			// Sync shims for globally installed packages
+			if synced, err := shim.SyncShims(); err == nil && synced > 0 {
+				fmt.Printf("Created %d shim(s) for globally installed packages.\n", synced)
 			}
 
 			return nil

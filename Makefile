@@ -33,8 +33,8 @@ install:
 	go install $(LDFLAGS) ./cmd/nodeman
 
 # Build, install, and run setup
-setup: install
-	$(BINARY_NAME) setup
+setup: build
+	$(BUILD_DIR)/$(BINARY_NAME) setup
 
 clean:
 	rm -rf $(BUILD_DIR)
