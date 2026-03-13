@@ -104,6 +104,10 @@ func runDoctor() error {
 		results = append(results, checkResult{"PATH priority", false, detail})
 	}
 
+	if runtime.GOOS == "windows" {
+		results = append(results, checkWindowsUserPath(shimsDir))
+	}
+
 	// 5. Check 'which node' points to shim
 	if whichNode, err := exec.LookPath("node"); err == nil {
 		resolved, _ := filepath.EvalSymlinks(whichNode)
@@ -133,30 +137,39 @@ func runDoctor() error {
 	if cfg != nil && cfg.ActiveVersion != "" {
 		versionsDir, _ := platform.VersionsDir()
 		binDir := platform.BinDir(filepath.Join(versionsDir, cfg.ActiveVersion))
-		suffix := platform.ExeSuffix()
 
-		nodeBin := filepath.Join(binDir, "node"+suffix)
-		if out, err := exec.Command(nodeBin, "--version").Output(); err == nil {
-			ver := strings.TrimSpace(string(out))
-			expected := "v" + cfg.ActiveVersion
-			if ver == expected {
-				results = append(results, checkResult{"node --version", true, ver})
+		nodeBin, nodeErr := platform.ResolveBinCommand(binDir, "node")
+		if nodeErr == nil {
+			out, err := platform.CommandForBinary(nodeBin, "--version").Output()
+			if err == nil {
+				ver := strings.TrimSpace(string(out))
+				expected := "v" + cfg.ActiveVersion
+				if ver == expected {
+					results = append(results, checkResult{"node --version", true, ver})
+				} else {
+					results = append(results, checkResult{"node --version", false,
+						fmt.Sprintf("expected %s, got %s", expected, ver)})
+				}
 			} else {
 				results = append(results, checkResult{"node --version", false,
-					fmt.Sprintf("expected %s, got %s", expected, ver)})
+					fmt.Sprintf("cannot execute %s: %s", nodeBin, err)})
 			}
 		} else {
-			results = append(results, checkResult{"node --version", false,
-				fmt.Sprintf("cannot execute %s: %s", nodeBin, err)})
+			results = append(results, checkResult{"node --version", false, nodeErr.Error()})
 		}
 
-		npmBin := filepath.Join(binDir, "npm"+suffix)
-		if out, err := exec.Command(npmBin, "--version").Output(); err == nil {
-			ver := strings.TrimSpace(string(out))
-			results = append(results, checkResult{"npm --version", true, fmt.Sprintf("%s (bundled with node %s)", ver, cfg.ActiveVersion)})
+		npmBin, npmErr := platform.ResolveBinCommand(binDir, "npm")
+		if npmErr == nil {
+			out, err := platform.CommandForBinary(npmBin, "--version").Output()
+			if err == nil {
+				ver := strings.TrimSpace(string(out))
+				results = append(results, checkResult{"npm --version", true, fmt.Sprintf("%s (bundled with node %s)", ver, cfg.ActiveVersion)})
+			} else {
+				results = append(results, checkResult{"npm --version", false,
+					fmt.Sprintf("cannot execute %s: %s", npmBin, err)})
+			}
 		} else {
-			results = append(results, checkResult{"npm --version", false,
-				fmt.Sprintf("cannot execute %s: %s", npmBin, err)})
+			results = append(results, checkResult{"npm --version", false, npmErr.Error()})
 		}
 	}
 
@@ -195,6 +208,10 @@ func checkCompletions() []checkResult {
 		return []checkResult{{"Completions", false, "cannot determine home directory"}}
 	}
 
+	if runtime.GOOS == "windows" {
+		return checkPowerShellCompletions(home)
+	}
+
 	switch {
 	case strings.HasSuffix(shell, "/zsh"):
 		return checkProfileContains(home, ".zshrc", "nodeman completion zsh")
@@ -214,6 +231,32 @@ func checkCompletions() []checkResult {
 	}
 }
 
+func checkPowerShellCompletions(home string) []checkResult {
+	profiles := []string{
+		filepath.Join(home, "Documents", "PowerShell", "Microsoft.PowerShell_profile.ps1"),
+		filepath.Join(home, "Documents", "WindowsPowerShell", "Microsoft.PowerShell_profile.ps1"),
+	}
+
+	for _, profilePath := range profiles {
+		content, err := os.ReadFile(profilePath)
+		if err != nil {
+			continue
+		}
+
+		if strings.Contains(string(content), "nodeman completion powershell") {
+			return []checkResult{{"Completions", true, fmt.Sprintf("configured in %s", profilePath)}}
+		}
+	}
+
+	for _, profilePath := range profiles {
+		if _, err := os.Stat(profilePath); err == nil {
+			return []checkResult{{"Completions", false, fmt.Sprintf("not found in %s — run 'nodeman setup'", profilePath)}}
+		}
+	}
+
+	return []checkResult{{"Completions", false, "not found in PowerShell profile — run 'nodeman setup'"}}
+}
+
 func checkProfileContains(home, profileName, needle string) []checkResult {
 	profilePath := filepath.Join(home, profileName)
 	content, err := os.ReadFile(profilePath)
@@ -224,4 +267,24 @@ func checkProfileContains(home, profileName, needle string) []checkResult {
 		return []checkResult{{"Completions", true, fmt.Sprintf("configured in ~/%s", profileName)}}
 	}
 	return []checkResult{{"Completions", false, fmt.Sprintf("not found in ~/%s — run 'nodeman setup'", profileName)}}
+}
+
+func checkWindowsUserPath(shimsDir string) checkResult {
+	out, err := exec.Command("powershell", "-NoProfile", "-Command", `[Environment]::GetEnvironmentVariable('Path', 'User')`).Output()
+	if err != nil {
+		return checkResult{"User PATH", false, "cannot read user PATH — run 'nodeman setup'"}
+	}
+
+	userPath := strings.TrimSpace(string(out))
+	for _, entry := range strings.Split(userPath, ";") {
+		entry = strings.TrimSpace(entry)
+		if entry == "" {
+			continue
+		}
+		if strings.EqualFold(filepath.Clean(entry), filepath.Clean(shimsDir)) {
+			return checkResult{"User PATH", true, "nodeman shims persisted for GUI apps (including VS Code)"}
+		}
+	}
+
+	return checkResult{"User PATH", false, "nodeman shims missing from user PATH — run 'nodeman setup' then restart VS Code"}
 }

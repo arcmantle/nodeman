@@ -130,6 +130,35 @@ func ExeSuffix() string {
 	return ""
 }
 
+// ResolveBinCommand resolves a command inside a Node bin directory.
+// On Windows it supports both .exe and .cmd launchers.
+func ResolveBinCommand(binDir, name string) (string, error) {
+	if runtime.GOOS == "windows" {
+		for _, ext := range []string{".exe", ".cmd"} {
+			candidate := filepath.Join(binDir, name+ext)
+			if info, err := os.Stat(candidate); err == nil && !info.IsDir() {
+				return candidate, nil
+			}
+		}
+		return "", fmt.Errorf("%s not found in %s", name, binDir)
+	}
+
+	candidate := filepath.Join(binDir, name+ExeSuffix())
+	if info, err := os.Stat(candidate); err == nil && !info.IsDir() {
+		return candidate, nil
+	}
+	return "", fmt.Errorf("%s not found in %s", name, binDir)
+}
+
+// CommandForBinary creates an exec.Cmd for the given binary path.
+// On Windows, .cmd targets are run via cmd.exe /c.
+func CommandForBinary(binaryPath string, args ...string) *exec.Cmd {
+	if runtime.GOOS == "windows" && strings.EqualFold(filepath.Ext(binaryPath), ".cmd") {
+		return exec.Command("cmd.exe", append([]string{"/c", binaryPath}, args...)...)
+	}
+	return exec.Command(binaryPath, args...)
+}
+
 // ShimNames returns the names of binaries that should be shimmed.
 func ShimNames() []string {
 	return []string{"node", "npm", "npx", "corepack"}

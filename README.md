@@ -33,6 +33,7 @@ chmod +x nodeman
 ./nodeman setup
 
 # Restart your terminal, then:
+# On Windows, also restart VS Code so tsserver sees PATH updates.
 
 # Install the latest LTS Node.js
 nodeman install lts

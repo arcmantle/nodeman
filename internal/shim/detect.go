@@ -1,9 +1,7 @@
 package shim
 
 import (
-	"os"
 	"path/filepath"
-	"strings"
 
 	"github.com/roen/nodeman/internal/config"
 	"github.com/roen/nodeman/internal/platform"
@@ -22,8 +20,10 @@ var shimBinaries = map[string]bool{
 // It matches the core shims (node, npm, npx, corepack) plus any binary
 // that exists in the active Node.js version's bin directory.
 func DetectShim(argv0 string) string {
-	base := filepath.Base(argv0)
-	base = strings.TrimSuffix(base, ".exe")
+	base := normalizeShimName(argv0)
+	if base == "" {
+		return ""
+	}
 
 	// Always match core shims
 	if shimBinaries[base] {
@@ -47,8 +47,7 @@ func DetectShim(argv0 string) string {
 	}
 
 	binDir := platform.BinDir(filepath.Join(versionsDir, cfg.ActiveVersion))
-	candidate := filepath.Join(binDir, base+platform.ExeSuffix())
-	if _, err := os.Stat(candidate); err == nil {
+	if _, err := resolveShimTarget(binDir, base); err == nil {
 		return base
 	}
 

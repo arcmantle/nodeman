@@ -129,9 +129,9 @@ Accepts the same version specifiers as 'install':
 				}
 			}
 
-			// Sync shims for globally installed packages
-			if synced, err := shim.SyncShims(); err == nil && synced > 0 {
-				fmt.Printf("Created %d shim(s) for globally installed packages.\n", synced)
+			// Sync and prune shims for globally installed packages
+			if synced, pruned, err := shim.SyncShims(); err == nil && (synced > 0 || pruned > 0) {
+				fmt.Printf("Shims synced: %d created/updated, %d pruned.\n", synced, pruned)
 			}
 
 			return nil

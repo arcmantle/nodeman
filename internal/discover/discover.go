@@ -17,7 +17,7 @@ type Installation struct {
 	Version string // Version string without "v" prefix (e.g. "22.14.0")
 	Source  string // Detected source (e.g. "Homebrew", "nvm", "system", "unknown")
 	BinDir  string // Directory containing the node binary
-	RootDir string // Root of the Node.js installation (parent of bin/)
+	RootDir string // Root of the Node.js installation
 }
 
 // FindAll scans the system for existing Node.js installations outside of nodeman.
@@ -184,7 +184,7 @@ func inspectNode(nodePath string) (Installation, error) {
 	version = strings.TrimPrefix(version, "v")
 
 	binDir := filepath.Dir(resolved)
-	rootDir := filepath.Dir(binDir) // assume bin/ is one level below root
+	rootDir := installationRoot(binDir)
 
 	source := identifySource(resolved)
 
@@ -200,15 +200,17 @@ func inspectNode(nodePath string) (Installation, error) {
 // identifySource guesses where a Node installation came from based on its path.
 func identifySource(resolvedPath string) string {
 	p := strings.ToLower(resolvedPath)
+	// Normalize separators so source checks work on Windows and Unix paths.
+	p = strings.ReplaceAll(p, "\\", "/")
 
 	switch {
 	case strings.Contains(p, "homebrew") || strings.Contains(p, "/opt/homebrew/") || strings.Contains(p, "/usr/local/cellar/"):
 		return "Homebrew"
-	case strings.Contains(p, ".nvm/"):
+	case strings.Contains(p, "/.nvm/") || strings.Contains(p, "/nvm/"):
 		return "nvm"
-	case strings.Contains(p, ".fnm/"):
+	case strings.Contains(p, "/.fnm/") || strings.Contains(p, "/fnm/"):
 		return "fnm"
-	case strings.Contains(p, ".volta/"):
+	case strings.Contains(p, "/.volta/") || strings.Contains(p, "/volta/"):
 		return "Volta"
 	case strings.Contains(p, ".nodeman/"):
 		return "nodeman"
@@ -221,6 +223,18 @@ func identifySource(resolvedPath string) string {
 	default:
 		return "unknown"
 	}
+}
+
+func installationRoot(binDir string) string {
+	// On Windows, node.exe is usually at the installation root (no bin/ folder).
+	if runtime.GOOS == "windows" {
+		base := strings.ToLower(filepath.Base(binDir))
+		if base != "bin" {
+			return binDir
+		}
+	}
+
+	return filepath.Dir(binDir)
 }
 
 // ShimsInPath checks whether the nodeman shims directory is in PATH,

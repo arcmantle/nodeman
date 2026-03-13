@@ -54,10 +54,9 @@ func Exec(shimName string, args []string) error {
 	}
 
 	binDir := platform.BinDir(filepath.Join(versionsDir, activeVersion))
-	binaryPath := filepath.Join(binDir, shimName+platform.ExeSuffix())
-
-	if _, err := os.Stat(binaryPath); os.IsNotExist(err) {
-		return fmt.Errorf("%s not found for Node.js %s at %s", shimName, activeVersion, binaryPath)
+	binaryPath, err := resolveShimTarget(binDir, shimName)
+	if err != nil {
+		return err
 	}
 
 	// If this is npm/npx with a global install/uninstall, run as a child process
@@ -97,14 +96,14 @@ func isGlobalNpmCommand(shimName string, args []string) bool {
 
 // execAndSync runs the binary as a child process and syncs shims after it completes.
 func execAndSync(binaryPath string, args []string) error {
-	cmd := exec.Command(binaryPath, args[1:]...)
+	cmd := commandForBinary(binaryPath, args[1:])
 	cmd.Stdin = os.Stdin
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
 	err := cmd.Run()
 
 	// Sync shims regardless of exit code — a partial install may have added binaries
-	SyncShims()
+	_, _, _ = SyncShims()
 
 	if err != nil {
 		if exitErr, ok := err.(*exec.ExitError); ok {
@@ -123,7 +122,7 @@ func execUnix(binaryPath string, args []string) error {
 }
 
 func execWindows(binaryPath string, args []string) error {
-	cmd := exec.Command(binaryPath, args[1:]...)
+	cmd := commandForBinary(binaryPath, args[1:])
 	cmd.Stdin = os.Stdin
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
@@ -137,4 +136,11 @@ func execWindows(binaryPath string, args []string) error {
 	}
 	os.Exit(0)
 	return nil // unreachable
+}
+
+func commandForBinary(binaryPath string, args []string) *exec.Cmd {
+	if runtime.GOOS == "windows" && strings.EqualFold(filepath.Ext(binaryPath), ".cmd") {
+		return exec.Command("cmd.exe", append([]string{"/c", binaryPath}, args...)...)
+	}
+	return exec.Command(binaryPath, args...)
 }

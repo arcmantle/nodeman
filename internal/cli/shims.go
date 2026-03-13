@@ -25,12 +25,12 @@ can run it manually after installing global packages with npm:
   npm install -g pnpm
   nodeman shims sync`,
 		RunE: func(cmd *cobra.Command, args []string) error {
-			synced, err := shim.SyncShims()
+			synced, pruned, err := shim.SyncShims()
 			if err != nil {
 				return err
 			}
-			if synced > 0 {
-				fmt.Printf("Created %d new shim(s).\n", synced)
+			if synced > 0 || pruned > 0 {
+				fmt.Printf("Shims synced: %d created/updated, %d pruned.\n", synced, pruned)
 			} else {
 				fmt.Println("All shims are up to date.")
 			}

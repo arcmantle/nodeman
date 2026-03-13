@@ -4,7 +4,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"strings"
 
@@ -146,14 +145,14 @@ func ReinstallAll(binDir string) error {
 		return nil
 	}
 
-	npmPath := filepath.Join(binDir, "npm"+platform.ExeSuffix())
-	if _, err := os.Stat(npmPath); os.IsNotExist(err) {
-		return fmt.Errorf("npm not found at %s", npmPath)
+	npmPath, err := platform.ResolveBinCommand(binDir, "npm")
+	if err != nil {
+		return err
 	}
 
 	fmt.Printf("Reinstalling %d global package(s)...\n", len(m.Packages))
 	args := append([]string{"install", "-g"}, m.Packages...)
-	cmd := exec.Command(npmPath, args...)
+	cmd := platform.CommandForBinary(npmPath, args...)
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
 

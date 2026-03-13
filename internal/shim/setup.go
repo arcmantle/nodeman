@@ -54,10 +54,12 @@ func Setup() error {
 
 	// Also create a nodeman symlink/copy in the shims dir for convenience
 	nodeman := filepath.Join(shimsDir, "nodeman"+suffix)
-	os.Remove(nodeman)
-	if err := os.Link(self, nodeman); err != nil {
-		if err := copyFile(self, nodeman); err != nil {
-			return fmt.Errorf("creating nodeman shim: %w", err)
+	if !samePath(self, nodeman) {
+		os.Remove(nodeman)
+		if err := os.Link(self, nodeman); err != nil {
+			if err := copyFile(self, nodeman); err != nil {
+				return fmt.Errorf("creating nodeman shim: %w", err)
+			}
 		}
 	}
 
@@ -75,8 +77,8 @@ func Setup() error {
 	configureCompletions(shimsDir)
 
 	// Sync shims for globally installed packages
-	if synced, err := SyncShims(); err == nil && synced > 0 {
-		fmt.Printf("Created %d shim(s) for globally installed packages.\n", synced)
+	if synced, pruned, err := SyncShims(); err == nil && (synced > 0 || pruned > 0) {
+		fmt.Printf("Shims synced: %d created/updated, %d pruned.\n", synced, pruned)
 	}
 
 	return nil
@@ -84,60 +86,73 @@ func Setup() error {
 
 // SyncShims scans the active Node.js version's bin directory and creates
 // shim hardlinks/copies in the shims directory for any binaries that don't
-// already have one. This makes globally installed packages (e.g., pnpm, tsc)
-// available on PATH. Returns the number of new shims created or updated.
-func SyncShims() (int, error) {
+// already have one. It also prunes stale shims that no longer exist in the
+// active version's bin directory.
+// Returns: createdOrUpdated, pruned, error.
+func SyncShims() (int, int, error) {
 	cfg, err := config.Load()
 	if err != nil || cfg.ActiveVersion == "" {
-		return 0, nil
+		return 0, 0, nil
 	}
 
 	versionsDir, err := platform.VersionsDir()
 	if err != nil {
-		return 0, err
+		return 0, 0, err
 	}
 
 	shimsDir, err := platform.ShimsDir()
 	if err != nil {
-		return 0, err
+		return 0, 0, err
 	}
 
 	binDir := platform.BinDir(filepath.Join(versionsDir, cfg.ActiveVersion))
 	entries, err := os.ReadDir(binDir)
 	if err != nil {
-		return 0, nil
+		return 0, 0, nil
 	}
 
 	// Find the nodeman binary in shimsDir to use as the shim source
 	suffix := platform.ExeSuffix()
 	shimSource := filepath.Join(shimsDir, "nodeman"+suffix)
 	if _, err := os.Stat(shimSource); os.IsNotExist(err) {
-		return 0, fmt.Errorf("nodeman shim not found in %s — run 'nodeman setup' first", shimsDir)
+		return 0, 0, fmt.Errorf("nodeman shim not found in %s — run 'nodeman setup' first", shimsDir)
 	}
 	shimSource, _ = filepath.EvalSymlinks(shimSource)
 
 	sourceInfo, err := os.Stat(shimSource)
 	if err != nil {
-		return 0, err
+		return 0, 0, err
 	}
 
-	// Names we should never create shims for
-	skip := map[string]bool{
+	// Names we should never create shims for from bin entries.
+	skipCreate := map[string]bool{
 		"nodeman": true,
 	}
 
+	// Desired shims after sync (core + discovered binaries + nodeman helper).
+	desired := make(map[string]bool)
+	desired["nodeman"] = true
+	for _, core := range platform.ShimNames() {
+		desired[core] = true
+	}
+
 	synced := 0
+	seen := make(map[string]bool)
 	for _, entry := range entries {
 		if entry.IsDir() {
 			continue
 		}
 
-		name := entry.Name()
-		name = strings.TrimSuffix(name, ".exe")
-
-		if skip[name] {
+		name, ok := shimNameFromBinEntry(entry.Name())
+		if !ok {
 			continue
 		}
+
+		if skipCreate[name] || seen[name] {
+			continue
+		}
+		seen[name] = true
+		desired[name] = true
 
 		shimPath := filepath.Join(shimsDir, name+suffix)
 
@@ -159,7 +174,30 @@ func SyncShims() (int, error) {
 		synced++
 	}
 
-	return synced, nil
+	pruned := 0
+	if shimEntries, err := os.ReadDir(shimsDir); err == nil {
+		for _, entry := range shimEntries {
+			if entry.IsDir() {
+				continue
+			}
+
+			entryName := entry.Name()
+			if runtime.GOOS == "windows" && !strings.HasSuffix(strings.ToLower(entryName), ".exe") {
+				continue
+			}
+
+			name := normalizeShimName(entryName)
+			if name == "" || desired[name] {
+				continue
+			}
+
+			if err := os.Remove(filepath.Join(shimsDir, entryName)); err == nil {
+				pruned++
+			}
+		}
+	}
+
+	return synced, pruned, nil
 }
 
 // reportExistingInstalls scans for Node.js installations outside nodeman and prints them.
@@ -232,14 +270,23 @@ func copyFile(src, dst string) error {
 	return err
 }
 
+func samePath(a, b string) bool {
+	a = filepath.Clean(a)
+	b = filepath.Clean(b)
+	if runtime.GOOS == "windows" {
+		return strings.EqualFold(a, b)
+	}
+	return a == b
+}
+
 func printPathInstructions(shimsDir string) {
-	inPath, isFirst, _ := discover.ShimsInPath()
-	if inPath && isFirst {
+	if runtime.GOOS == "windows" {
+		addToWindowsPath(shimsDir)
 		return
 	}
 
-	if runtime.GOOS == "windows" {
-		addToWindowsPath(shimsDir)
+	inPath, isFirst, _ := discover.ShimsInPath()
+	if inPath && isFirst {
 		return
 	}
 
@@ -285,16 +332,6 @@ func printPathInstructions(shimsDir string) {
 
 // addToWindowsPath adds shimsDir to the user-level PATH environment variable on Windows.
 func addToWindowsPath(shimsDir string) {
-	// Read current user PATH
-	currentPath := os.Getenv("PATH")
-	if strings.Contains(strings.ToLower(currentPath), strings.ToLower(shimsDir)) {
-		fmt.Println("\nPATH already contains", shimsDir)
-		fmt.Println("Restart your terminal for changes to take effect.")
-		return
-	}
-
-	// Use PowerShell to read and update the user-level PATH in the registry
-	// This is the standard way to persistently modify PATH on Windows
 	checkCmd := exec.Command("powershell", "-NoProfile", "-Command",
 		`[Environment]::GetEnvironmentVariable('Path', 'User')`)
 	userPathBytes, err := checkCmd.Output()
@@ -305,18 +342,16 @@ func addToWindowsPath(shimsDir string) {
 	}
 
 	userPath := strings.TrimSpace(string(userPathBytes))
-	if strings.Contains(strings.ToLower(userPath), strings.ToLower(shimsDir)) {
-		fmt.Println("\nPATH already contains", shimsDir)
-		fmt.Println("Restart your terminal for changes to take effect.")
-		return
-	}
+	entries := splitPathEntries(userPath)
+	entries = removePathEntry(entries, shimsDir)
+	newEntries := append([]string{shimsDir}, entries...)
+	newPath := strings.Join(newEntries, ";")
 
-	// Prepend shimsDir so it takes priority
-	var newPath string
-	if userPath == "" {
-		newPath = shimsDir
-	} else {
-		newPath = shimsDir + ";" + userPath
+	if strings.EqualFold(strings.TrimSpace(newPath), strings.TrimSpace(userPath)) {
+		ensureProcessPathFirst(shimsDir)
+		fmt.Println("\nnodeman shims already prioritized in user PATH.")
+		fmt.Println("If VS Code is open, restart it so tsserver picks up PATH changes.")
+		return
 	}
 
 	setCmd := exec.Command("powershell", "-NoProfile", "-Command",
@@ -328,8 +363,60 @@ func addToWindowsPath(shimsDir string) {
 		return
 	}
 
-	fmt.Println("\nAdded nodeman to user PATH.")
-	fmt.Println("Restart your terminal for changes to take effect.")
+	ensureProcessPathFirst(shimsDir)
+	broadcastWindowsEnvironmentChange()
+
+	fmt.Println("\nAdded nodeman to user PATH and moved it to highest user priority.")
+	fmt.Println("Restart VS Code and terminal sessions for tsserver to see the updated PATH.")
+}
+
+func splitPathEntries(pathValue string) []string {
+	if pathValue == "" {
+		return nil
+	}
+
+	parts := strings.Split(pathValue, ";")
+	out := make([]string, 0, len(parts))
+	for _, part := range parts {
+		part = strings.TrimSpace(part)
+		if part == "" {
+			continue
+		}
+		out = append(out, part)
+	}
+	return out
+}
+
+func removePathEntry(entries []string, target string) []string {
+	targetClean := filepath.Clean(target)
+	out := make([]string, 0, len(entries))
+	for _, entry := range entries {
+		clean := filepath.Clean(entry)
+		if strings.EqualFold(clean, targetClean) {
+			continue
+		}
+		out = append(out, entry)
+	}
+	return out
+}
+
+func ensureProcessPathFirst(shimsDir string) {
+	processEntries := splitPathEntries(os.Getenv("PATH"))
+	processEntries = removePathEntry(processEntries, shimsDir)
+	processEntries = append([]string{shimsDir}, processEntries...)
+	_ = os.Setenv("PATH", strings.Join(processEntries, ";"))
+}
+
+func broadcastWindowsEnvironmentChange() {
+	cmd := exec.Command("powershell", "-NoProfile", "-Command", `$sig = @"
+using System;
+using System.Runtime.InteropServices;
+public static class EnvNotify {
+	[DllImport("user32.dll", CharSet = CharSet.Auto, SetLastError = true)]
+	public static extern IntPtr SendMessageTimeout(IntPtr hWnd, uint Msg, UIntPtr wParam, string lParam, uint flags, uint timeout, out UIntPtr result);
+}
+"@; Add-Type -TypeDefinition $sig -ErrorAction SilentlyContinue | Out-Null; $r = [uintptr]::Zero; [void][EnvNotify]::SendMessageTimeout([intptr]0xffff, 0x1A, [uintptr]::Zero, 'Environment', 0x0002, 5000, [ref]$r)`)
+	_ = cmd.Run()
 }
 
 // detectShellProfile returns the path to the user's shell profile file.
@@ -368,7 +455,7 @@ func detectShellProfile() string {
 // configureCompletions sets up shell completions for nodeman.
 func configureCompletions(shimsDir string) {
 	if runtime.GOOS == "windows" {
-		// PowerShell completions require manual setup
+		configurePowerShellCompletions()
 		return
 	}
 
@@ -382,6 +469,57 @@ func configureCompletions(shimsDir string) {
 		configureBashCompletions(nodeman)
 	case strings.HasSuffix(shell, "/fish"):
 		configureFishCompletions(nodeman)
+	}
+}
+
+func configurePowerShellCompletions() {
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return
+	}
+
+	profiles := []string{
+		filepath.Join(home, "Documents", "PowerShell", "Microsoft.PowerShell_profile.ps1"),
+		filepath.Join(home, "Documents", "WindowsPowerShell", "Microsoft.PowerShell_profile.ps1"),
+	}
+
+	completionLine := `nodeman completion powershell | Out-String | Invoke-Expression`
+	configured := false
+	alreadyConfigured := false
+
+	for _, profilePath := range profiles {
+		if content, err := os.ReadFile(profilePath); err == nil {
+			if strings.Contains(string(content), "nodeman completion powershell") {
+				alreadyConfigured = true
+				continue
+			}
+		}
+
+		if err := os.MkdirAll(filepath.Dir(profilePath), 0o755); err != nil {
+			continue
+		}
+
+		f, err := os.OpenFile(profilePath, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o644)
+		if err != nil {
+			continue
+		}
+
+		if _, err := fmt.Fprintf(f, "\n# nodeman shell completions\n%s\n", completionLine); err == nil {
+			configured = true
+			fmt.Println("Shell completions configured in", profilePath)
+		}
+		_ = f.Close()
+	}
+
+	if !configured && alreadyConfigured {
+		fmt.Println("PowerShell completions already configured.")
+		return
+	}
+
+	if !configured {
+		fmt.Println("Could not configure PowerShell completions automatically.")
+		fmt.Println("Add this line to your $PROFILE:")
+		fmt.Println(" ", completionLine)
 	}
 }
 
