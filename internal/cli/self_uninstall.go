@@ -89,6 +89,7 @@ func runSelfUninstall(yes bool) error {
 // cleanShellProfiles removes nodeman PATH and completion entries from shell profiles.
 func cleanShellProfiles(shimsDir string) {
 	if runtime.GOOS == "windows" {
+		cleanPowerShellProfiles(shimsDir)
 		return
 	}
 
@@ -128,6 +129,36 @@ func cleanShellProfiles(shimsDir string) {
 	fishCompletions := filepath.Join(home, ".config", "fish", "completions", "nodeman.fish")
 	if err := os.Remove(fishCompletions); err == nil {
 		fmt.Println("Removed fish completions file")
+	}
+}
+
+func cleanPowerShellProfiles(shimsDir string) {
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return
+	}
+
+	profiles := []string{
+		filepath.Join(home, "Documents", "PowerShell", "Microsoft.PowerShell_profile.ps1"),
+		filepath.Join(home, "Documents", "WindowsPowerShell", "Microsoft.PowerShell_profile.ps1"),
+	}
+
+	for _, profile := range profiles {
+		content, err := os.ReadFile(profile)
+		if err != nil {
+			continue
+		}
+
+		original := string(content)
+		cleaned := removeNodemanLines(original, shimsDir)
+
+		if cleaned != original {
+			if err := os.WriteFile(profile, []byte(cleaned), 0o644); err != nil {
+				fmt.Printf("  Warning: could not clean %s: %v\n", profile, err)
+			} else {
+				fmt.Printf("Cleaned %s\n", profile)
+			}
+		}
 	}
 }
 

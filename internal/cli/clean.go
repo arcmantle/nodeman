@@ -3,6 +3,7 @@ package cli
 import (
 	"bufio"
 	"fmt"
+	"io/fs"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -119,11 +120,15 @@ func describeRemoval(inst discover.Installation) removalAction {
 		}
 
 	case "nvm":
+		desc := fmt.Sprintf("remove %s", inst.RootDir)
+		if runtime.GOOS == "windows" {
+			desc = fmt.Sprintf("nvm uninstall %s (fallback: remove %s)", inst.Version, inst.RootDir)
+		}
 		return removalAction{
-			Description: fmt.Sprintf("remove %s", inst.RootDir),
+			Description: desc,
 			Supported:   true,
 			Execute: func() error {
-				return os.RemoveAll(inst.RootDir)
+				return removeNvmInstall(inst)
 			},
 		}
 
@@ -132,7 +137,7 @@ func describeRemoval(inst discover.Installation) removalAction {
 			Description: fmt.Sprintf("remove %s", inst.RootDir),
 			Supported:   true,
 			Execute: func() error {
-				return os.RemoveAll(inst.RootDir)
+				return removeManagedDir(inst.RootDir)
 			},
 		}
 
@@ -141,7 +146,7 @@ func describeRemoval(inst discover.Installation) removalAction {
 			Description: fmt.Sprintf("remove %s", inst.RootDir),
 			Supported:   true,
 			Execute: func() error {
-				return os.RemoveAll(inst.RootDir)
+				return removeManagedDir(inst.RootDir)
 			},
 		}
 
@@ -304,6 +309,48 @@ exit 1
 	cmd.Stderr = os.Stderr
 	if err := cmd.Run(); err != nil {
 		return fmt.Errorf("uninstaller failed: %w", err)
+	}
+
+	return nil
+}
+
+func removeNvmInstall(inst discover.Installation) error {
+	if runtime.GOOS == "windows" {
+		if _, err := exec.LookPath("nvm"); err == nil {
+			cmd := exec.Command("nvm", "uninstall", inst.Version)
+			cmd.Stdout = os.Stdout
+			cmd.Stderr = os.Stderr
+			if err := cmd.Run(); err == nil {
+				return nil
+			}
+			fmt.Println("      nvm uninstall failed; falling back to direct directory removal.")
+		}
+	}
+
+	return removeManagedDir(inst.RootDir)
+}
+
+func removeManagedDir(dir string) error {
+	if runtime.GOOS == "windows" {
+		// Best-effort: clear read-only attributes before deletion.
+		_ = filepath.WalkDir(dir, func(path string, d fs.DirEntry, err error) error {
+			if err != nil {
+				return nil
+			}
+			mode := os.FileMode(0o666)
+			if d.IsDir() {
+				mode = 0o777
+			}
+			_ = os.Chmod(path, mode)
+			return nil
+		})
+	}
+
+	if err := os.RemoveAll(dir); err != nil {
+		if runtime.GOOS == "windows" {
+			return fmt.Errorf("%w (directory may be in use; close running node/npm processes and retry)", err)
+		}
+		return err
 	}
 
 	return nil
