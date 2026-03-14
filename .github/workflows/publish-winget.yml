@@ -1,9 +1,15 @@
 name: Publish Winget
 
 on:
-  release:
-    types:
-      - released
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Tag to publish (for example: v1.0.0)"
+        required: true
+        type: string
 
 permissions:
   contents: read
@@ -14,7 +20,32 @@ jobs:
     if: ${{ github.repository_owner == 'arcmantle' }}
     env:
       WINGET_TOKEN: ${{ secrets.WINGET_TOKEN }}
+      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
     steps:
+      - name: Resolve release tag
+        id: tag
+        shell: bash
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            echo "value=${{ github.event.inputs.tag }}" >> "$GITHUB_OUTPUT"
+          else
+            echo "value=${GITHUB_REF_NAME}" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Wait for GitHub release assets
+        shell: bash
+        run: |
+          for i in {1..30}; do
+            if gh release view "${{ steps.tag.outputs.value }}" --repo "${{ github.repository }}" >/dev/null 2>&1; then
+              echo "Release found for tag ${{ steps.tag.outputs.value }}"
+              exit 0
+            fi
+            echo "Release not ready yet. Retrying in 10s..."
+            sleep 10
+          done
+          echo "Timed out waiting for release ${{ steps.tag.outputs.value }}"
+          exit 1
+
       - name: Publish release to Winget
         if: ${{ env.WINGET_TOKEN != '' }}
         uses: vedantmgoyal9/winget-releaser@v2
@@ -22,6 +53,7 @@ jobs:
           identifier: Arcmantle.Nodeman
           token: ${{ env.WINGET_TOKEN }}
           installers-regex: '(?i)windows_amd64\\.zip$'
+          release-tag: ${{ steps.tag.outputs.value }}
 
       - name: Missing Winget token notice
         if: ${{ env.WINGET_TOKEN == '' }}

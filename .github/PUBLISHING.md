@@ -10,7 +10,7 @@ nodeman release publishing is split into three automated paths:
 
 - `HOMEBREW_TAP_GITHUB_TOKEN`: PAT with push access to `arcmantle/homebrew-tap`.
 - `WINGET_TOKEN`: classic PAT with `public_repo` scope used by Winget Releaser.
-- `CHOCO_API_KEY`: Chocolatey API key for https://push.chocolatey.org/.
+- `CHOCO_API_KEY`: Chocolatey API key for <https://push.chocolatey.org/>.
 
 If a secret is not configured, the related publish step is skipped.
 
@@ -23,11 +23,11 @@ If a secret is not configured, the related publish step is skipped.
   - Updates Homebrew formula in `arcmantle/homebrew-tap` when `HOMEBREW_TAP_GITHUB_TOKEN` exists.
 
 - `.github/workflows/publish-winget.yml`
-  - Trigger: release published.
+  - Trigger: push a `v*` tag (and manual `workflow_dispatch`).
   - Publishes manifests using `vedantmgoyal9/winget-releaser`.
 
 - `.github/workflows/publish-chocolatey.yml`
-  - Trigger: release published.
+  - Trigger: push a `v*` tag (and manual `workflow_dispatch`).
   - Builds and pushes a `.nupkg` using `scripts/choco-pack-and-push.ps1`.
 
 ## Winget first submission bootstrap

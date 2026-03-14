@@ -1,9 +1,15 @@
 name: Publish Chocolatey
 
 on:
-  release:
-    types:
-      - released
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Tag to publish (for example: v1.0.0)"
+        required: true
+        type: string
 
 permissions:
   contents: read
@@ -14,13 +20,41 @@ jobs:
     if: ${{ github.repository_owner == 'arcmantle' }}
     env:
       CHOCO_API_KEY: ${{ secrets.CHOCO_API_KEY }}
+      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
     steps:
       - uses: actions/checkout@v4
+
+      - name: Resolve release tag
+        id: tag
+        shell: pwsh
+        run: |
+          if ("${{ github.event_name }}" -eq "workflow_dispatch") {
+            "value=${{ github.event.inputs.tag }}" | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8
+          } else {
+            "value=${{ github.ref_name }}" | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8
+          }
+
+      - name: Wait for GitHub release assets
+        shell: pwsh
+        run: |
+          $tag = "${{ steps.tag.outputs.value }}"
+          for ($i = 0; $i -lt 30; $i++) {
+            gh release view $tag --repo "${{ github.repository }}" *> $null
+            if ($LASTEXITCODE -eq 0) {
+              Write-Host "Release found for tag $tag"
+              exit 0
+            }
+
+            Write-Host "Release not ready yet. Retrying in 10s..."
+            Start-Sleep -Seconds 10
+          }
+
+          throw "Timed out waiting for release $tag"
 
       - name: Build and push Chocolatey package
         if: ${{ env.CHOCO_API_KEY != '' }}
         shell: pwsh
-        run: ./scripts/choco-pack-and-push.ps1 -Tag "${{ github.event.release.tag_name }}" -ApiKey "${{ env.CHOCO_API_KEY }}"
+        run: ./scripts/choco-pack-and-push.ps1 -Tag "${{ steps.tag.outputs.value }}" -ApiKey "${{ env.CHOCO_API_KEY }}"
 
       - name: Missing Chocolatey API key notice
         if: ${{ env.CHOCO_API_KEY == '' }}
