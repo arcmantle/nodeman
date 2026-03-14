@@ -12,15 +12,17 @@ jobs:
   publish:
     runs-on: windows-latest
     if: ${{ github.repository_owner == 'arcmantle' }}
+    env:
+      CHOCO_API_KEY: ${{ secrets.CHOCO_API_KEY }}
     steps:
       - uses: actions/checkout@v4
 
       - name: Build and push Chocolatey package
-        if: ${{ secrets.CHOCO_API_KEY != '' }}
+        if: ${{ env.CHOCO_API_KEY != '' }}
         shell: pwsh
-        run: ./scripts/choco-pack-and-push.ps1 -Tag "${{ github.event.release.tag_name }}" -ApiKey "${{ secrets.CHOCO_API_KEY }}"
+        run: ./scripts/choco-pack-and-push.ps1 -Tag "${{ github.event.release.tag_name }}" -ApiKey "${{ env.CHOCO_API_KEY }}"
 
       - name: Missing Chocolatey API key notice
-        if: ${{ secrets.CHOCO_API_KEY == '' }}
+        if: ${{ env.CHOCO_API_KEY == '' }}
         shell: pwsh
         run: Write-Host "CHOCO_API_KEY is not configured. Skipping Chocolatey publication."

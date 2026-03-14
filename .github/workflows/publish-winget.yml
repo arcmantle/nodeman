@@ -12,15 +12,17 @@ jobs:
   publish:
     runs-on: ubuntu-latest
     if: ${{ github.repository_owner == 'arcmantle' }}
+    env:
+      WINGET_TOKEN: ${{ secrets.WINGET_TOKEN }}
     steps:
       - name: Publish release to Winget
-        if: ${{ secrets.WINGET_TOKEN != '' }}
+        if: ${{ env.WINGET_TOKEN != '' }}
         uses: vedantmgoyal9/winget-releaser@v2
         with:
           identifier: Arcmantle.Nodeman
-          token: ${{ secrets.WINGET_TOKEN }}
+          token: ${{ env.WINGET_TOKEN }}
           installers-regex: '(?i)windows_amd64\\.zip$'
 
       - name: Missing Winget token notice
-        if: ${{ secrets.WINGET_TOKEN == '' }}
+        if: ${{ env.WINGET_TOKEN == '' }}
         run: echo "WINGET_TOKEN is not configured. Skipping Winget publication."
