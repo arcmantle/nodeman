@@ -1,10 +1,15 @@
 package cli
 
 import (
+	"archive/tar"
+	"archive/zip"
+	"compress/gzip"
 	"encoding/json"
 	"fmt"
 	"io"
 	"os"
+	"os/exec"
+	"path"
 	"path/filepath"
 	"runtime"
 	"strings"
@@ -54,28 +59,16 @@ func newUpgradeCmd(currentVersion string) *cobra.Command {
 				return nil
 			}
 
-			// Find the right asset for this OS/arch
-			suffix := fmt.Sprintf("%s-%s", runtime.GOOS, runtime.GOARCH)
-			if runtime.GOOS == "windows" {
-				suffix += ".exe"
-			}
-
-			var assetURL string
-			for _, a := range release.Assets {
-				if strings.Contains(a.Name, suffix) {
-					assetURL = a.BrowserDownloadURL
-					break
-				}
-			}
-			if assetURL == "" {
+			asset, err := selectReleaseAsset(release.Assets)
+			if err != nil {
 				return fmt.Errorf("no release binary found for %s/%s", runtime.GOOS, runtime.GOARCH)
 			}
 
-			fmt.Printf("Upgrading %s → %s\n", currentVersion, release.TagName)
+			fmt.Printf("Upgrading %s -> %s\n", currentVersion, release.TagName)
 
-			// Download to temp file
+			// Download release asset
 			dlClient := httputil.NewClient(5 * time.Minute)
-			dlResp, err := dlClient.Get(assetURL)
+			dlResp, err := dlClient.Get(asset.BrowserDownloadURL)
 			if err != nil {
 				return fmt.Errorf("downloading update: %w", err)
 			}
@@ -94,33 +87,213 @@ func newUpgradeCmd(currentVersion string) *cobra.Command {
 				return fmt.Errorf("resolving executable path: %w", err)
 			}
 
-			tmpFile, err := os.CreateTemp(filepath.Dir(execPath), "nodeman-upgrade-*")
+			tmpDir, err := os.MkdirTemp("", "nodeman-upgrade-*")
 			if err != nil {
-				return fmt.Errorf("creating temp file: %w", err)
+				return fmt.Errorf("creating temp directory: %w", err)
 			}
-			tmpPath := tmpFile.Name()
+			defer os.RemoveAll(tmpDir)
 
-			if _, err := io.Copy(tmpFile, dlResp.Body); err != nil {
-				tmpFile.Close()
-				os.Remove(tmpPath)
+			assetPath := filepath.Join(tmpDir, asset.Name)
+			assetFile, err := os.Create(assetPath)
+			if err != nil {
+				return fmt.Errorf("creating asset file: %w", err)
+			}
+
+			if _, err := io.Copy(assetFile, dlResp.Body); err != nil {
+				assetFile.Close()
 				return fmt.Errorf("writing update: %w", err)
 			}
-			tmpFile.Close()
+			assetFile.Close()
 
-			// Make executable
-			if err := os.Chmod(tmpPath, 0o755); err != nil {
-				os.Remove(tmpPath)
-				return fmt.Errorf("setting permissions: %w", err)
+			newBinaryPath, err := extractReleaseBinary(assetPath, asset.Name, tmpDir)
+			if err != nil {
+				return err
 			}
 
-			// Atomic rename over current binary
-			if err := os.Rename(tmpPath, execPath); err != nil {
-				os.Remove(tmpPath)
+			if err := replaceCurrentExecutable(execPath, newBinaryPath); err != nil {
 				return fmt.Errorf("replacing binary: %w", err)
 			}
 
-			fmt.Printf("Successfully upgraded to %s\n", release.TagName)
+			if runtime.GOOS == "windows" {
+				fmt.Printf("Upgrade to %s scheduled. Restart your terminal and run 'nodeman --version'.\n", release.TagName)
+			} else {
+				fmt.Printf("Successfully upgraded to %s\n", release.TagName)
+			}
 			return nil
 		},
 	}
+}
+
+func selectReleaseAsset(assets []githubAsset) (githubAsset, error) {
+	osName := runtime.GOOS
+	arch := runtime.GOARCH
+
+	if osName == "windows" {
+		for _, asset := range assets {
+			name := strings.ToLower(asset.Name)
+			if strings.Contains(name, fmt.Sprintf("_%s_%s", osName, arch)) && strings.HasSuffix(name, ".zip") {
+				return asset, nil
+			}
+		}
+
+		for _, asset := range assets {
+			name := strings.ToLower(asset.Name)
+			if strings.Contains(name, fmt.Sprintf("-%s-%s", osName, arch)) && strings.HasSuffix(name, ".exe") {
+				return asset, nil
+			}
+		}
+	} else {
+		for _, asset := range assets {
+			name := strings.ToLower(asset.Name)
+			if strings.Contains(name, fmt.Sprintf("_%s_%s", osName, arch)) && strings.HasSuffix(name, ".tar.gz") {
+				return asset, nil
+			}
+		}
+
+		for _, asset := range assets {
+			name := strings.ToLower(asset.Name)
+			if strings.Contains(name, fmt.Sprintf("-%s-%s", osName, arch)) && !strings.Contains(name, "checksums") {
+				return asset, nil
+			}
+		}
+	}
+
+	return githubAsset{}, fmt.Errorf("matching release asset not found")
+}
+
+func extractReleaseBinary(assetPath, assetName, tmpDir string) (string, error) {
+	lower := strings.ToLower(assetName)
+	binName := "nodeman"
+	if runtime.GOOS == "windows" {
+		binName += ".exe"
+	}
+
+	outputPath := filepath.Join(tmpDir, "nodeman-upgrade-binary"+filepath.Ext(binName))
+
+	if strings.HasSuffix(lower, ".zip") {
+		r, err := zip.OpenReader(assetPath)
+		if err != nil {
+			return "", fmt.Errorf("opening zip archive: %w", err)
+		}
+		defer r.Close()
+
+		for _, f := range r.File {
+			if strings.EqualFold(path.Base(f.Name), binName) {
+				rc, err := f.Open()
+				if err != nil {
+					return "", fmt.Errorf("opening archive entry: %w", err)
+				}
+
+				out, err := os.OpenFile(outputPath, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0o755)
+				if err != nil {
+					rc.Close()
+					return "", fmt.Errorf("creating upgrade binary: %w", err)
+				}
+
+				if _, err := io.Copy(out, rc); err != nil {
+					out.Close()
+					rc.Close()
+					return "", fmt.Errorf("extracting upgrade binary: %w", err)
+				}
+
+				out.Close()
+				rc.Close()
+				return outputPath, nil
+			}
+		}
+
+		return "", fmt.Errorf("binary %s not found in zip asset", binName)
+	}
+
+	if strings.HasSuffix(lower, ".tar.gz") {
+		f, err := os.Open(assetPath)
+		if err != nil {
+			return "", fmt.Errorf("opening tar.gz archive: %w", err)
+		}
+		defer f.Close()
+
+		gz, err := gzip.NewReader(f)
+		if err != nil {
+			return "", fmt.Errorf("opening gzip stream: %w", err)
+		}
+		defer gz.Close()
+
+		tr := tar.NewReader(gz)
+		for {
+			hdr, err := tr.Next()
+			if err == io.EOF {
+				break
+			}
+			if err != nil {
+				return "", fmt.Errorf("reading tar archive: %w", err)
+			}
+
+			if strings.EqualFold(path.Base(hdr.Name), binName) {
+				out, err := os.OpenFile(outputPath, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0o755)
+				if err != nil {
+					return "", fmt.Errorf("creating upgrade binary: %w", err)
+				}
+
+				if _, err := io.Copy(out, tr); err != nil {
+					out.Close()
+					return "", fmt.Errorf("extracting upgrade binary: %w", err)
+				}
+
+				out.Close()
+				return outputPath, nil
+			}
+		}
+
+		return "", fmt.Errorf("binary %s not found in tar.gz asset", binName)
+	}
+
+	if err := os.Chmod(assetPath, 0o755); err != nil {
+		return "", fmt.Errorf("setting permissions: %w", err)
+	}
+
+	return assetPath, nil
+}
+
+func replaceCurrentExecutable(execPath, newBinaryPath string) error {
+	if runtime.GOOS != "windows" {
+		return os.Rename(newBinaryPath, execPath)
+	}
+
+	stagedPath := execPath + ".upgrade"
+	if err := os.Remove(stagedPath); err != nil && !os.IsNotExist(err) {
+		return err
+	}
+
+	if err := copyFile(newBinaryPath, stagedPath); err != nil {
+		return err
+	}
+
+	script := fmt.Sprintf(
+		`$target='%s'; $new='%s'; for($i=0; $i -lt 120; $i++){ try { if(-not (Test-Path -LiteralPath $new)) { exit 1 }; Move-Item -LiteralPath $new -Destination $target -Force; exit 0 } catch { Start-Sleep -Milliseconds 250 } }; exit 1`,
+		strings.ReplaceAll(execPath, "'", "''"),
+		strings.ReplaceAll(stagedPath, "'", "''"),
+	)
+
+	cmd := exec.Command("powershell", "-NoProfile", "-WindowStyle", "Hidden", "-Command", script)
+	return cmd.Start()
+}
+
+func copyFile(src, dst string) error {
+	in, err := os.Open(src)
+	if err != nil {
+		return err
+	}
+	defer in.Close()
+
+	out, err := os.OpenFile(dst, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0o755)
+	if err != nil {
+		return err
+	}
+	defer out.Close()
+
+	if _, err := io.Copy(out, in); err != nil {
+		return err
+	}
+
+	return nil
 }
