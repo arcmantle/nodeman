@@ -22,17 +22,27 @@ A fast, cross-platform Node.js version manager written in Go.
 
 ## Quick Start
 
-```bash
-# Download the latest release for your platform from:
-# https://github.com/RoenLie/nodeman/releases
+Download the latest release for your platform from:
+https://github.com/RoenLie/nodeman/releases
 
-# Make it executable (macOS/Linux)
+**macOS/Linux:**
+```bash
+# Make it executable
 chmod +x nodeman
 
 # Run setup — installs shims, configures PATH, and sets up shell completions
 ./nodeman setup
+```
 
-# Restart your terminal, then:
+**Windows (PowerShell):**
+```powershell
+# Run setup — installs shims, configures PATH, and sets up shell completions
+.\nodeman.exe setup
+```
+
+For both platforms:
+```bash
+# Restart your terminal.
 # On Windows, also restart VS Code so tsserver sees PATH updates.
 
 # Install the latest LTS Node.js
@@ -50,7 +60,17 @@ node --version
 ```bash
 git clone https://github.com/RoenLie/nodeman.git
 cd nodeman
+```
+
+**macOS/Linux:**
+```bash
 make setup    # Builds, installs shims, and configures PATH
+```
+
+**Windows (PowerShell):**
+```powershell
+go build -o dist/nodeman.exe ./cmd/nodeman
+.\dist\nodeman.exe setup
 ```
 
 ## Commands
@@ -68,6 +88,7 @@ make setup    # Builds, installs shims, and configures PATH
 | `nodeman ls-remote --lts` | List only LTS versions |
 | `nodeman ls-remote --no-cache` | Bypass the 1-hour version cache |
 | `nodeman current` | Show the active version |
+| `nodeman docs` | Render local docs and open them in your browser |
 | `nodeman setup` | Create shims, configure PATH and completions, detect existing Node |
 | `nodeman adopt` | Import existing system Node.js into nodeman |
 | `nodeman clean` | Detect and remove external Node.js installations |
@@ -101,6 +122,7 @@ nodeman install latest       # Latest overall release
 If you run `nodeman use` without a version argument, it searches for a `.nvmrc`
 or `.node-version` file in the current directory and parent directories:
 
+**macOS/Linux:**
 ```bash
 # Create a version file
 echo "22" > .nvmrc
@@ -111,14 +133,32 @@ nodeman use
 # Now using Node.js 22.14.0
 ```
 
+**Windows (PowerShell):**
+```powershell
+# Create a version file
+Set-Content .nvmrc "22"
+
+# nodeman reads it automatically
+nodeman use
+# Found C:\path\to\.nvmrc: 22
+# Now using Node.js 22.14.0
+```
+
 ## Environment Override
 
 Set `NODEMAN_VERSION` to temporarily override the active version without
 changing `config.json`:
 
+**macOS/Linux:**
 ```bash
 NODEMAN_VERSION=20 node --version   # Uses latest installed 20.x
 NODEMAN_VERSION=22.14.0 npm test    # Uses exact version
+```
+
+**Windows (PowerShell):**
+```powershell
+$env:NODEMAN_VERSION = "20"; node --version
+$env:NODEMAN_VERSION = "22.14.0"; npm test
 ```
 
 ## Adopting Existing Installations
@@ -223,11 +263,20 @@ nodeman ls-remote 22
 
 Print paths to nodeman's directories for use in scripts:
 
+**macOS/Linux:**
 ```bash
 nodeman dir              # ~/.nodeman
 nodeman dir shims        # ~/.nodeman/shims
 nodeman dir versions     # ~/.nodeman/versions
 nodeman dir active       # ~/.nodeman/versions/<active version>
+```
+
+**Windows (PowerShell):**
+```powershell
+nodeman dir              # C:\Users\<you>\.nodeman
+nodeman dir shims        # C:\Users\<you>\.nodeman\shims
+nodeman dir versions     # C:\Users\<you>\.nodeman\versions
+nodeman dir active       # C:\Users\<you>\.nodeman\versions\<active version>
 ```
 
 ## Diagnostics
@@ -254,10 +303,18 @@ nodeman doctor
 
 nodeman respects standard proxy environment variables:
 
+**macOS/Linux:**
 ```bash
 export HTTP_PROXY=http://proxy.example.com:8080
 export HTTPS_PROXY=http://proxy.example.com:8080
 export NO_PROXY=localhost,127.0.0.1
+```
+
+**Windows (PowerShell):**
+```powershell
+$env:HTTP_PROXY = "http://proxy.example.com:8080"
+$env:HTTPS_PROXY = "http://proxy.example.com:8080"
+$env:NO_PROXY = "localhost,127.0.0.1"
 ```
 
 All downloads (Node.js binaries, version index, checksums, self-upgrade) will

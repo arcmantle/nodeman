@@ -19,6 +19,7 @@ func NewRootCmd(version string) *cobra.Command {
 		newListCmd(),
 		newListRemoteCmd(),
 		newCurrentCmd(),
+		newDocsCmd(version),
 		newSetupCmd(),
 		newAdoptCmd(),
 		newCleanCmd(),
