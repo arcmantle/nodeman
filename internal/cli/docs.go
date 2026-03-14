@@ -4,9 +4,9 @@ import (
 	"fmt"
 	"strings"
 
-	nodeman "github.com/roen/nodeman"
-	"github.com/roen/nodeman/embeddedreadme"
-	"github.com/roen/nodeman/internal/platform"
+	nodeman "github.com/arcmantle/nodeman"
+	"github.com/arcmantle/nodeman/embeddedreadme"
+	"github.com/arcmantle/nodeman/internal/platform"
 	"github.com/spf13/cobra"
 )
 
@@ -66,7 +66,7 @@ func rewriteDocsMarkdown(markdown []byte, version string) []byte {
 		ref = version
 	}
 
-	logoURL := fmt.Sprintf("https://raw.githubusercontent.com/RoenLie/nodeman/%s/assets/logo.svg", ref)
+	logoURL := fmt.Sprintf("https://raw.githubusercontent.com/arcmantle/nodeman/%s/assets/logo.svg", ref)
 	content := strings.ReplaceAll(string(markdown), `src="assets/logo.svg"`, fmt.Sprintf(`src="%s"`, logoURL))
 	return []byte(content)
 }

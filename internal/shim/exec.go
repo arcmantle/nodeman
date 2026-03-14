@@ -9,9 +9,9 @@ import (
 	"strings"
 	"syscall"
 
-	"github.com/roen/nodeman/internal/config"
-	"github.com/roen/nodeman/internal/platform"
-	"github.com/roen/nodeman/internal/versions"
+	"github.com/arcmantle/nodeman/internal/config"
+	"github.com/arcmantle/nodeman/internal/platform"
+	"github.com/arcmantle/nodeman/internal/versions"
 )
 
 // Exec replaces the current process with the real binary for the given shim name.

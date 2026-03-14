@@ -10,7 +10,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/roen/nodeman/internal/httputil"
+	"github.com/arcmantle/nodeman/internal/httputil"
 	"github.com/spf13/cobra"
 )
 
@@ -31,7 +31,7 @@ func newUpgradeCmd(currentVersion string) *cobra.Command {
 		RunE: func(cmd *cobra.Command, args []string) error {
 			client := httputil.NewClient(30 * time.Second)
 
-			resp, err := client.Get("https://api.github.com/repos/RoenLie/nodeman/releases/latest")
+			resp, err := client.Get("https://api.github.com/repos/arcmantle/nodeman/releases/latest")
 			if err != nil {
 				return fmt.Errorf("checking for updates: %w", err)
 			}

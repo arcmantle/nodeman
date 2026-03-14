@@ -3,7 +3,7 @@ package cli
 import (
 	"fmt"
 
-	"github.com/roen/nodeman/internal/config"
+	"github.com/arcmantle/nodeman/internal/config"
 	"github.com/spf13/cobra"
 )
 

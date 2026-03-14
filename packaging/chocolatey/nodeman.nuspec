@@ -1,0 +1,19 @@
+<?xml version="1.0"?>
+<package xmlns="http://schemas.microsoft.com/packaging/2015/06/nuspec.xsd">
+  <metadata>
+    <id>nodeman</id>
+    <version>__VERSION__</version>
+    <title>nodeman</title>
+    <authors>arcmantle</authors>
+    <projectUrl>https://github.com/arcmantle/nodeman</projectUrl>
+    <packageSourceUrl>https://github.com/arcmantle/nodeman</packageSourceUrl>
+    <license type="expression">MIT</license>
+    <requireLicenseAcceptance>false</requireLicenseAcceptance>
+    <summary>Fast, cross-platform Node.js version manager written in Go.</summary>
+    <description>nodeman installs, switches, and manages Node.js versions with shim-based forwarding and no shell hooks.</description>
+    <tags>node nodejs version manager cli</tags>
+  </metadata>
+  <files>
+    <file src="tools\**" target="tools" />
+  </files>
+</package>

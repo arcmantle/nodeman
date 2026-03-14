@@ -3,8 +3,8 @@ package shim
 import (
 	"path/filepath"
 
-	"github.com/roen/nodeman/internal/config"
-	"github.com/roen/nodeman/internal/platform"
+	"github.com/arcmantle/nodeman/internal/config"
+	"github.com/arcmantle/nodeman/internal/platform"
 )
 
 // shimBinaries is the set of binary names that nodeman always provides shims for.

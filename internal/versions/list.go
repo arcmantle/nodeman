@@ -8,7 +8,7 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/roen/nodeman/internal/platform"
+	"github.com/arcmantle/nodeman/internal/platform"
 )
 
 // InstalledVersion holds info about a locally installed Node.js version.

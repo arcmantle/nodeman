@@ -1,0 +1,58 @@
+version: 2
+
+project_name: nodeman
+
+builds:
+  - id: nodeman
+    main: ./cmd/nodeman
+    binary: nodeman
+    env:
+      - CGO_ENABLED=0
+    goos:
+      - darwin
+      - linux
+      - windows
+    goarch:
+      - amd64
+      - arm64
+    ldflags:
+      - -s -w -X main.version={{ .Version }}
+
+archives:
+  - id: bundles
+    ids:
+      - nodeman
+    formats:
+      - tar.gz
+    format_overrides:
+      - goos: windows
+        formats:
+          - zip
+    name_template: "{{ .ProjectName }}_{{ .Version }}_{{ .Os }}_{{ .Arch }}"
+
+checksum:
+  name_template: checksums.txt
+
+release:
+  github:
+    owner: arcmantle
+    name: nodeman
+  draft: false
+  prerelease: auto
+
+brews:
+  - name: nodeman
+    repository:
+      owner: arcmantle
+      name: homebrew-tap
+      branch: main
+      token: "{{ .Env.HOMEBREW_TAP_GITHUB_TOKEN }}"
+    directory: Formula
+    homepage: https://github.com/arcmantle/nodeman
+    description: Fast, cross-platform Node.js version manager written in Go
+    license: MIT
+    commit_author:
+      name: arcmantle-bot
+      email: releases@arcmantle.dev
+    test: |
+      system "#{bin}/nodeman", "--version"

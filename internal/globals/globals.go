@@ -7,7 +7,7 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/roen/nodeman/internal/platform"
+	"github.com/arcmantle/nodeman/internal/platform"
 )
 
 // Manifest represents the tracked global npm packages.

@@ -1,4 +1,4 @@
-module github.com/roen/nodeman
+module github.com/arcmantle/nodeman
 
 go 1.25.5
 

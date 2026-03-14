@@ -9,9 +9,9 @@ import (
 	"runtime"
 	"strings"
 
-	"github.com/roen/nodeman/internal/config"
-	"github.com/roen/nodeman/internal/discover"
-	"github.com/roen/nodeman/internal/platform"
+	"github.com/arcmantle/nodeman/internal/config"
+	"github.com/arcmantle/nodeman/internal/discover"
+	"github.com/arcmantle/nodeman/internal/platform"
 )
 
 // Setup creates shim binaries in ~/.nodeman/shims/.

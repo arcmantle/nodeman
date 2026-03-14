@@ -23,7 +23,7 @@ A fast, cross-platform Node.js version manager written in Go.
 ## Quick Start
 
 Download the latest release for your platform from:
-https://github.com/RoenLie/nodeman/releases
+https://github.com/arcmantle/nodeman/releases
 
 **macOS/Linux:**
 ```bash
@@ -58,7 +58,7 @@ node --version
 ### Building from Source
 
 ```bash
-git clone https://github.com/RoenLie/nodeman.git
+git clone https://github.com/arcmantle/nodeman.git
 cd nodeman
 ```
 
@@ -417,7 +417,7 @@ This means:
 
 ```bash
 # Clone
-git clone https://github.com/RoenLie/nodeman.git
+git clone https://github.com/arcmantle/nodeman.git
 cd nodeman
 
 # Build and install (creates shims + configures PATH)

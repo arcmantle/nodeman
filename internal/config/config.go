@@ -6,7 +6,7 @@ import (
 	"os"
 	"path/filepath"
 
-	"github.com/roen/nodeman/internal/platform"
+	"github.com/arcmantle/nodeman/internal/platform"
 )
 
 // Config represents the persistent nodeman configuration.

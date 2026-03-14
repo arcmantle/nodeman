@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/roen/nodeman/internal/versions"
+	"github.com/arcmantle/nodeman/internal/versions"
 	"github.com/spf13/cobra"
 )
 

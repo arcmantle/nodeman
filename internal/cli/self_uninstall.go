@@ -9,7 +9,7 @@ import (
 	"runtime"
 	"strings"
 
-	"github.com/roen/nodeman/internal/platform"
+	"github.com/arcmantle/nodeman/internal/platform"
 	"github.com/spf13/cobra"
 )
 

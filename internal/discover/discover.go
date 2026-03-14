@@ -8,7 +8,7 @@ import (
 	"runtime"
 	"strings"
 
-	"github.com/roen/nodeman/internal/platform"
+	"github.com/arcmantle/nodeman/internal/platform"
 )
 
 // Installation represents a discovered Node.js installation on the system.

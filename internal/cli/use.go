@@ -5,11 +5,11 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/roen/nodeman/internal/config"
-	"github.com/roen/nodeman/internal/globals"
-	"github.com/roen/nodeman/internal/platform"
-	"github.com/roen/nodeman/internal/shim"
-	"github.com/roen/nodeman/internal/versions"
+	"github.com/arcmantle/nodeman/internal/config"
+	"github.com/arcmantle/nodeman/internal/globals"
+	"github.com/arcmantle/nodeman/internal/platform"
+	"github.com/arcmantle/nodeman/internal/shim"
+	"github.com/arcmantle/nodeman/internal/versions"
 	"github.com/spf13/cobra"
 )
 

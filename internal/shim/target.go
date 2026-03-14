@@ -7,7 +7,7 @@ import (
 	"runtime"
 	"strings"
 
-	"github.com/roen/nodeman/internal/platform"
+	"github.com/arcmantle/nodeman/internal/platform"
 )
 
 // windowsShimExts are file extensions that nodeman treats as runnable shim targets.

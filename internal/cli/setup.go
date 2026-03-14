@@ -1,7 +1,7 @@
 package cli
 
 import (
-	"github.com/roen/nodeman/internal/shim"
+	"github.com/arcmantle/nodeman/internal/shim"
 	"github.com/spf13/cobra"
 )
 

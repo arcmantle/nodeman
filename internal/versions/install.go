@@ -12,8 +12,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/roen/nodeman/internal/httputil"
-	"github.com/roen/nodeman/internal/platform"
+	"github.com/arcmantle/nodeman/internal/httputil"
+	"github.com/arcmantle/nodeman/internal/platform"
 )
 
 // Install downloads, verifies, and extracts a Node.js version.

@@ -1,0 +1,15 @@
+$ErrorActionPreference = 'Stop'
+
+$packageArgs = @{
+  packageName    = 'nodeman'
+  fileType       = 'zip'
+  url64bit       = 'https://github.com/arcmantle/nodeman/releases/download/v__VERSION__/nodeman___VERSION___windows_amd64.zip'
+  checksum64     = '__CHECKSUM__'
+  checksumType64 = 'sha256'
+  unzipLocation  = (Split-Path -Parent $MyInvocation.MyCommand.Definition)
+}
+
+Install-ChocolateyZipPackage @packageArgs
+
+$exePath = Join-Path (Split-Path -Parent $MyInvocation.MyCommand.Definition) 'nodeman.exe'
+Install-BinFile -Name 'nodeman' -Path $exePath

@@ -1,7 +1,7 @@
 package cli
 
 import (
-	"github.com/roen/nodeman/internal/globals"
+	"github.com/arcmantle/nodeman/internal/globals"
 	"github.com/spf13/cobra"
 )
 

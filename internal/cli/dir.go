@@ -4,8 +4,8 @@ import (
 	"fmt"
 	"path/filepath"
 
-	"github.com/roen/nodeman/internal/config"
-	"github.com/roen/nodeman/internal/platform"
+	"github.com/arcmantle/nodeman/internal/config"
+	"github.com/arcmantle/nodeman/internal/platform"
 	"github.com/spf13/cobra"
 )
 

@@ -4,8 +4,8 @@ import (
 	"fmt"
 	"os"
 
-	"github.com/roen/nodeman/internal/cli"
-	"github.com/roen/nodeman/internal/shim"
+	"github.com/arcmantle/nodeman/internal/cli"
+	"github.com/arcmantle/nodeman/internal/shim"
 )
 
 var version = "dev"

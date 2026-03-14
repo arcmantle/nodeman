@@ -10,7 +10,7 @@ import (
 	"runtime"
 	"strings"
 
-	"github.com/roen/nodeman/internal/discover"
+	"github.com/arcmantle/nodeman/internal/discover"
 	"github.com/spf13/cobra"
 )
 
