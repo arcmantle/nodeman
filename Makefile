@@ -3,7 +3,7 @@ VERSION := $(shell git describe --tags --always --dirty 2>/dev/null || echo "dev
 LDFLAGS := -ldflags "-s -w -X main.version=$(VERSION)"
 BUILD_DIR := dist
 
-.PHONY: all build clean install setup release
+.PHONY: all build clean setup release
 
 # Build for current platform
 build:
@@ -28,11 +28,7 @@ release:
 	@echo "Release binaries in $(BUILD_DIR)/"
 	@ls -lh $(BUILD_DIR)/
 
-# Install to GOPATH/bin
-install:
-	go install $(LDFLAGS) ./cmd/nodeman
-
-# Build, install, and run setup
+# Build and run setup
 setup: build
 	$(BUILD_DIR)/$(BINARY_NAME) setup
 

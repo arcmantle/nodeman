@@ -3,10 +3,12 @@ package cli
 import (
 	"bufio"
 	"fmt"
+	"io/fs"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"runtime"
+	"strconv"
 	"strings"
 
 	"github.com/arcmantle/nodeman/internal/platform"
@@ -15,6 +17,7 @@ import (
 
 func newSelfUninstallCmd() *cobra.Command {
 	var yes bool
+	var killProcesses bool
 
 	cmd := &cobra.Command{
 		Use:   "self-uninstall",
@@ -28,16 +31,17 @@ func newSelfUninstallCmd() *cobra.Command {
 After running this command, nodeman will no longer be available.
 You may need to restart your terminal for PATH changes to take effect.`,
 		RunE: func(cmd *cobra.Command, args []string) error {
-			return runSelfUninstall(yes)
+			return runSelfUninstall(yes, killProcesses)
 		},
 	}
 
 	cmd.Flags().BoolVarP(&yes, "yes", "y", false, "Skip confirmation prompt")
+	cmd.Flags().BoolVar(&killProcesses, "kill-processes", false, "On Windows, stop node/nodeman processes running from ~/.nodeman before removal")
 
 	return cmd
 }
 
-func runSelfUninstall(yes bool) error {
+func runSelfUninstall(yes bool, killProcesses bool) error {
 	rootDir, err := platform.RootDir()
 	if err != nil {
 		return fmt.Errorf("cannot determine nodeman directory: %w", err)
@@ -68,15 +72,21 @@ func runSelfUninstall(yes bool) error {
 	// 1. Clean shell profile entries (PATH and completions)
 	cleanShellProfiles(shimsDir)
 
-	// 2. Remove the entire ~/.nodeman directory
-	if err := os.RemoveAll(rootDir); err != nil {
-		return fmt.Errorf("failed to remove %s: %w", rootDir, err)
-	}
-	fmt.Printf("Removed %s\n", rootDir)
-
-	// 3. On Windows, also clean the user-level PATH
+	// 2. On Windows, also clean the user-level PATH.
+	// Do this before directory removal so PATH is cleaned even when self-delete is deferred.
 	if runtime.GOOS == "windows" {
 		removeFromWindowsPath(shimsDir)
+	}
+
+	// 3. Remove the entire ~/.nodeman directory
+	deferred, err := removeNodemanRoot(rootDir, killProcesses)
+	if err != nil {
+		return fmt.Errorf("failed to remove %s: %w", rootDir, err)
+	}
+	if deferred {
+		fmt.Printf("Scheduled removal of %s after this process exits\n", rootDir)
+	} else {
+		fmt.Printf("Removed %s\n", rootDir)
 	}
 
 	fmt.Println()
@@ -84,6 +94,131 @@ func runSelfUninstall(yes bool) error {
 	fmt.Println("Restart your terminal for PATH changes to take effect.")
 
 	return nil
+}
+
+func removeNodemanRoot(rootDir string, killProcesses bool) (bool, error) {
+	if err := os.RemoveAll(rootDir); err == nil {
+		return false, nil
+	} else if runtime.GOOS != "windows" {
+		return false, err
+	} else {
+		// Best-effort: clear read-only attributes and try once more.
+		_ = filepath.WalkDir(rootDir, func(path string, d fs.DirEntry, walkErr error) error {
+			if walkErr != nil {
+				return nil
+			}
+			mode := os.FileMode(0o666)
+			if d.IsDir() {
+				mode = 0o777
+			}
+			_ = os.Chmod(path, mode)
+			return nil
+		})
+
+		if killProcesses {
+			if killed, killErr := killWindowsNodemanProcesses(rootDir, os.Getpid()); killErr != nil {
+				fmt.Printf("  Warning: could not stop nodeman-managed processes: %v\n", killErr)
+			} else if killed > 0 {
+				fmt.Printf("Stopped %d process(es) running from %s\n", killed, rootDir)
+			}
+		}
+
+		if retryErr := os.RemoveAll(rootDir); retryErr == nil {
+			return false, nil
+		} else {
+			if !runningFromNodemanRoot(rootDir) && !isLikelyWindowsFileLock(retryErr) {
+				return false, retryErr
+			}
+
+			if scheduleErr := scheduleWindowsRemove(rootDir, killProcesses); scheduleErr != nil {
+				return false, fmt.Errorf("%w (and deferred cleanup failed: %v)", retryErr, scheduleErr)
+			}
+
+			return true, nil
+		}
+	}
+}
+
+
+func scheduleWindowsRemove(rootDir string, killProcesses bool) error {
+	escapedRoot := strings.ReplaceAll(rootDir, "'", "''")
+	killBlock := ""
+	if killProcesses {
+		killBlock = `$targets = Get-Process node,nodeman -ErrorAction SilentlyContinue | Where-Object { $_.Path -and $_.Path.StartsWith($p, [System.StringComparison]::OrdinalIgnoreCase) -and $_.Id -ne $PID }; if($targets){ $targets | Stop-Process -Force -ErrorAction SilentlyContinue }; `
+	}
+
+	script := fmt.Sprintf(
+		`$p='%s'; for($i=0; $i -lt 120; $i++){ try { %sif(-not (Test-Path -LiteralPath $p)) { exit 0 }; Remove-Item -LiteralPath $p -Recurse -Force -ErrorAction Stop; exit 0 } catch { Start-Sleep -Seconds 1 } }; exit 1`,
+		escapedRoot,
+		killBlock,
+	)
+	cmd := exec.Command("powershell", "-NoProfile", "-WindowStyle", "Hidden", "-Command", script)
+	return cmd.Start()
+}
+
+func killWindowsNodemanProcesses(rootDir string, excludePID int) (int, error) {
+	if runtime.GOOS != "windows" {
+		return 0, nil
+	}
+
+	script := fmt.Sprintf(
+		`$p='%s'; $exclude=%d; $targets = Get-Process node,nodeman -ErrorAction SilentlyContinue | Where-Object { $_.Path -and $_.Path.StartsWith($p, [System.StringComparison]::OrdinalIgnoreCase) -and $_.Id -ne $exclude }; $count=@($targets).Count; if($count -gt 0){ $targets | Stop-Process -Force -ErrorAction SilentlyContinue }; Write-Output $count`,
+		strings.ReplaceAll(rootDir, "'", "''"),
+		excludePID,
+	)
+	cmd := exec.Command("powershell", "-NoProfile", "-Command", script)
+	out, err := cmd.Output()
+	if err != nil {
+		return 0, err
+	}
+
+	countStr := strings.TrimSpace(string(out))
+	if countStr == "" {
+		return 0, nil
+	}
+
+	killed, err := strconv.Atoi(countStr)
+	if err != nil {
+		return 0, fmt.Errorf("parsing stopped process count %q: %w", countStr, err)
+	}
+
+	return killed, nil
+}
+
+func runningFromNodemanRoot(rootDir string) bool {
+	execPath, err := os.Executable()
+	if err != nil {
+		return false
+	}
+
+	if resolved, resolveErr := filepath.EvalSymlinks(execPath); resolveErr == nil {
+		execPath = resolved
+	}
+
+	return pathInside(execPath, rootDir)
+}
+
+func isLikelyWindowsFileLock(err error) bool {
+	msg := strings.ToLower(err.Error())
+	return strings.Contains(msg, "access is denied") ||
+		strings.Contains(msg, "permission denied") ||
+		strings.Contains(msg, "used by another process")
+}
+
+func pathInside(path, root string) bool {
+	cleanPath := filepath.Clean(path)
+	cleanRoot := filepath.Clean(root)
+
+	if runtime.GOOS == "windows" {
+		cleanPath = strings.ToLower(cleanPath)
+		cleanRoot = strings.ToLower(cleanRoot)
+	}
+
+	if cleanPath == cleanRoot {
+		return true
+	}
+
+	return strings.HasPrefix(cleanPath, cleanRoot+string(os.PathSeparator))
 }
 
 // cleanShellProfiles removes nodeman PATH and completion entries from shell profiles.
