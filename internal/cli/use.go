@@ -65,6 +65,11 @@ Accepts the same version specifiers as 'install':
 				return err
 			}
 
+			cfg, err := config.Load()
+			if err != nil {
+				return err
+			}
+
 			// Check if input matches an installed version directly or as a prefix
 			var matchedVersion string
 			for _, v := range installed {
@@ -76,7 +81,11 @@ Accepts the same version specifiers as 'install':
 
 			// If no local match, resolve remotely and install
 			if matchedVersion == "" {
-				fmt.Println("Version not installed locally. Fetching remote versions...")
+				if looksLikeNumericVersionSpec(input) {
+					fmt.Println("Version not installed locally. Fetching remote versions...")
+				} else {
+					fmt.Println("Resolving version specifier from remote versions...")
+				}
 				remote, err := versions.FetchRemoteVersions()
 				if err != nil {
 					return err
@@ -102,12 +111,12 @@ Accepts the same version specifiers as 'install':
 				matchedVersion = vNum
 			}
 
-			// Set as active
-			cfg, err := config.Load()
-			if err != nil {
-				return err
+			if matchedVersion == cfg.ActiveVersion {
+				fmt.Printf("Node.js %s is already active\n", matchedVersion)
+				return nil
 			}
 
+			// Set as active
 			oldVersion := cfg.ActiveVersion
 			cfg.PreviousVersion = oldVersion
 			cfg.ActiveVersion = matchedVersion
@@ -140,4 +149,19 @@ Accepts the same version specifiers as 'install':
 
 	cmd.Flags().BoolVar(&previous, "previous", false, "Switch to the previously active version")
 	return cmd
+}
+
+func looksLikeNumericVersionSpec(input string) bool {
+	s := strings.TrimPrefix(strings.TrimSpace(input), "v")
+	if s == "" {
+		return false
+	}
+
+	for _, r := range s {
+		if (r < '0' || r > '9') && r != '.' {
+			return false
+		}
+	}
+
+	return true
 }
