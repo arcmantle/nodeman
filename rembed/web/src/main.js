@@ -19,9 +19,9 @@ import themeGitHubLight from '@shikijs/themes/github-light';
 import themeGitHubDarkDimmed from '@shikijs/themes/github-dark-dimmed';
 import './styles.css';
 
-const STORAGE_KEY = 'embeddedreadme.theme';
+const STORAGE_KEY = 'rembed.theme';
 
-const payload = globalThis.__EMBEDDED_README_DATA__ || {
+const payload = globalThis.__REMBED_DATA__ || {
   title: 'Documentation',
   version: 'dev',
   sourcePath: 'unknown',

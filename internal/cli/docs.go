@@ -5,8 +5,8 @@ import (
 	"strings"
 
 	nodeman "github.com/arcmantle/nodeman"
-	"github.com/arcmantle/nodeman/embeddedreadme"
 	"github.com/arcmantle/nodeman/internal/platform"
+	"github.com/arcmantle/rembed"
 	"github.com/spf13/cobra"
 )
 
@@ -28,15 +28,29 @@ The generated file is versioned and written to:
 				return err
 			}
 
-			markdown := rewriteDocsMarkdown(nodeman.EmbeddedREADME, version)
-			docPath, err := embeddedreadme.WriteVersionedDocs(
+			ref := "master"
+			if strings.HasPrefix(version, "v") {
+				ref = version
+			}
+
+			docPath, err := rembed.WriteDocsWithOptions(
 				rootDir,
-				version,
-				markdown,
-				"nodeman Documentation",
-				"embedded README.md",
-				force,
+				string(nodeman.EmbeddedREADME),
+				rembed.WriteOptions{
+					Version:    version,
+					Title:      "nodeman Documentation",
+					SourcePath: "embedded README.md",
+					Force:      force,
+					InlineAssets: map[string]rembed.InlineAsset{
+						"assets/logo.svg": {
+							Data:     nodeman.EmbeddedLogoSVG,
+							MIMEType: "image/svg+xml",
+						},
+					},
+					LinkBaseURL: rembed.GitHubRawBaseURL("arcmantle", "nodeman", ref),
+				},
 			)
+
 			if err != nil {
 				return err
 			}
@@ -47,7 +61,7 @@ The generated file is versioned and written to:
 				return nil
 			}
 
-			if err := embeddedreadme.OpenInBrowser(docPath); err != nil {
+			if err := rembed.OpenInBrowser(docPath); err != nil {
 				return fmt.Errorf("opening docs in browser: %w", err)
 			}
 			fmt.Println("Opened documentation in your default browser.")
@@ -58,15 +72,4 @@ The generated file is versioned and written to:
 	cmd.Flags().BoolVar(&noOpen, "no-open", false, "Generate docs but do not open browser")
 	cmd.Flags().BoolVar(&force, "force", false, "Regenerate docs even if file already exists")
 	return cmd
-}
-
-func rewriteDocsMarkdown(markdown []byte, version string) []byte {
-	ref := "master"
-	if strings.HasPrefix(version, "v") {
-		ref = version
-	}
-
-	logoURL := fmt.Sprintf("https://raw.githubusercontent.com/arcmantle/nodeman/%s/assets/logo.svg", ref)
-	content := strings.ReplaceAll(string(markdown), `src="assets/logo.svg"`, fmt.Sprintf(`src="%s"`, logoURL))
-	return []byte(content)
 }
