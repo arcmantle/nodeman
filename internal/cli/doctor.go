@@ -8,6 +8,7 @@ import (
 	"runtime"
 	"strings"
 
+	"github.com/arcmantle/nodeman/internal/auth"
 	"github.com/arcmantle/nodeman/internal/config"
 	"github.com/arcmantle/nodeman/internal/discover"
 	"github.com/arcmantle/nodeman/internal/platform"
@@ -52,6 +53,11 @@ func runDoctor() error {
 		results = append(results, checkResult{"Active version", false, "no active version set — run 'nodeman use <version>'"})
 	} else {
 		results = append(results, checkResult{"Active version", true, cfg.ActiveVersion})
+	}
+
+	if cfg != nil {
+		ok, detail := auth.DoctorStatus(cfg)
+		results = append(results, checkResult{"Package auth", ok, detail})
 	}
 
 	// 1b. Check installed versions

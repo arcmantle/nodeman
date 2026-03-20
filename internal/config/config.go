@@ -11,8 +11,22 @@ import (
 
 // Config represents the persistent nodeman configuration.
 type Config struct {
-	ActiveVersion   string `json:"active_version"`
-	PreviousVersion string `json:"previous_version,omitempty"`
+	ActiveVersion   string            `json:"active_version"`
+	PreviousVersion string            `json:"previous_version,omitempty"`
+	PackageAuth     PackageAuthConfig `json:"package_auth,omitempty"`
+}
+
+// PackageAuthConfig controls package-manager authentication injection.
+type PackageAuthConfig struct {
+	Enabled    bool                  `json:"enabled,omitempty"`
+	Registries []PackageAuthRegistry `json:"registries,omitempty"`
+}
+
+// PackageAuthRegistry describes one registry mapping whose token is stored in the OS keychain.
+type PackageAuthRegistry struct {
+	Registry string `json:"registry"`
+	Scope    string `json:"scope,omitempty"`
+	Enabled  bool   `json:"enabled,omitempty"`
 }
 
 func configPath() (string, error) {

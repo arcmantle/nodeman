@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"strings"
 
+	"github.com/arcmantle/nodeman/internal/auth"
 	"github.com/arcmantle/nodeman/internal/platform"
 )
 
@@ -155,6 +156,15 @@ func ReinstallAll(binDir string) error {
 	cmd := platform.CommandForBinary(npmPath, args...)
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
+	prepared, err := auth.PrepareEnvironment(os.Environ())
+	if err != nil {
+		return fmt.Errorf("preparing package auth: %w", err)
+	}
+	defer prepared.Cleanup()
+	cmd.Env = prepared.Env
+	for _, warning := range prepared.Warnings {
+		fmt.Printf("Warning: %s\n", warning)
+	}
 
 	if err := cmd.Run(); err != nil {
 		// Report but don't fail the entire use operation

@@ -100,6 +100,12 @@ go build -o dist/nodeman.exe ./cmd/nodeman
 | `nodeman dir versions` | Print the versions directory path |
 | `nodeman dir active` | Print the active version's directory path |
 | `nodeman shims sync` | Manually sync shims for globally installed packages |
+| `nodeman auth list` | List configured package-manager auth mappings |
+| `nodeman auth set <registry>` | Store a registry token in the OS keychain |
+| `nodeman auth test [registry]` | Validate keychain-backed auth mappings |
+| `nodeman auth remove <registry>` | Remove a registry auth mapping |
+| `nodeman auth enable` | Enable package-manager auth injection |
+| `nodeman auth disable` | Disable package-manager auth injection |
 | `nodeman globals list` | List tracked global packages |
 | `nodeman globals add <pkg>` | Track a global package |
 | `nodeman globals remove <pkg>` | Untrack a global package |
@@ -234,6 +240,39 @@ nodeman globals add typescript eslint prettier
 When you switch versions with `nodeman use`, all tracked packages are
 automatically reinstalled with the new version's npm.
 
+## Package Manager Auth
+
+nodeman can store per-registry tokens in your OS keychain and inject them into
+package-manager subprocesses without requiring you to hardcode tokens in a
+persistent `~/.npmrc` file.
+
+```bash
+# Store a token for the default npm registry
+nodeman auth set registry.npmjs.org
+
+# Store a token for a private scoped registry
+nodeman auth set npm.pkg.github.com --scope @my-org
+
+# Inspect configured mappings
+nodeman auth list
+
+# Validate auth resolution
+nodeman auth test
+```
+
+You can also supply the token non-interactively:
+
+```bash
+export MY_NPM_TOKEN=xxxxxxxx
+nodeman auth set registry.npmjs.org --token-env MY_NPM_TOKEN
+```
+
+Behavior notes:
+- Tokens are stored in the OS keychain, not in `~/.nodeman/config.json`
+- nodeman writes registry metadata only to its config file
+- npm, pnpm, yarn, and nodeman's internal npm subprocesses receive auth via a temporary npm-compatible user config
+- If a token is missing or the keychain lookup fails, nodeman warns and continues without injected auth
+
 ## Browsing Remote Versions
 
 By default, `ls-remote` shows the latest version in each major release line
@@ -293,6 +332,7 @@ nodeman doctor
 # ✓ PATH priority: shims come first
 # ✓ which node → ~/.nodeman/shims/node
 # ✓ which npm → ~/.nodeman/shims/npm
+# ✓ Package auth: enabled with 1 registry mapping
 # ✓ node v22.14.0
 # ✓ npm 10.9.2
 # ✓ No conflicting installations
@@ -384,19 +424,26 @@ These are hardlinked copies of the `nodeman` binary itself.
 
 When invoked as `node` (or `npm`, `npx`, `pnpm`, etc.), nodeman detects the
 invocation name, reads the active version from `~/.nodeman/config.json`, and
-replaces itself with the real binary using `exec`.
+launches the real binary from the active Node.js installation.
+
+For plain runtime commands like `node`, nodeman replaces itself with the real
+binary using `exec`.
+
+For package-manager commands like `npm`, `pnpm`, `yarn`, and `corepack`, nodeman can run the
+real binary as a child process so it can inject temporary auth configuration
+and clean it up afterward.
 
 This means:
 - No shell hooks or `eval` needed
 - Works with any shell (bash, zsh, fish, PowerShell, cmd)
-- Zero overhead once exec'd — the shim is replaced by the real binary
+- Near-zero overhead for runtime commands; package-manager commands may incur a small wrapper cost only when auth injection is active
 - Any globally installed package gets a shim automatically
 
 ## Directory Structure
 
 ```
 ~/.nodeman/
-├── config.json        # Active version + previous version
+├── config.json        # Active version, previous version, auth metadata
 ├── globals.json       # Tracked global packages
 ├── cache/             # Cached remote version index
 │   └── remote-versions.json
