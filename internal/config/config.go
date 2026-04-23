@@ -27,6 +27,7 @@ type PackageAuthRegistry struct {
 	Registry string `json:"registry"`
 	Scope    string `json:"scope,omitempty"`
 	Enabled  bool   `json:"enabled,omitempty"`
+	Method   string `json:"method,omitempty"`
 }
 
 func configPath() (string, error) {
