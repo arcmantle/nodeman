@@ -279,13 +279,15 @@ func reportPathStatus(shimsDir string) {
 
 // writeCmdShim creates a .cmd wrapper script that forwards to the .exe shim.
 // This ensures Windows callers that invoke e.g. "npm.cmd" are still intercepted
-// by nodeman. The wrapper uses the absolute path to the co-located .exe so that
-// it works correctly even when invoked by name only (via PATH) from a different
-// working directory. Using %~dp0 is unreliable in that scenario because it can
-// resolve to the caller's working directory instead of the shims directory.
+// by nodeman. The wrapper uses the absolute 8.3 short path to the co-located
+// .exe so that it works correctly even when:
+//   - invoked by name only (via PATH) from a different working directory
+//   - the shims directory contains non-ASCII characters (e.g. Nordic øæå in
+//     the username), which cmd.exe may misinterpret under the active OEM
+//     code page
 func writeCmdShim(shimsDir, name string) error {
 	cmdPath := filepath.Join(shimsDir, name+".cmd")
-	exePath := filepath.Join(shimsDir, name+".exe")
+	exePath := filepath.Join(shortPath(shimsDir), name+".exe")
 	content := fmt.Sprintf("@\"%s\" %%*\r\n", exePath)
 	return os.WriteFile(cmdPath, []byte(content), 0o755)
 }
