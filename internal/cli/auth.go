@@ -2,6 +2,7 @@ package cli
 
 import (
 	"bufio"
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -9,10 +10,16 @@ import (
 	"strings"
 
 	"github.com/arcmantle/nodeman/internal/auth"
+	"github.com/arcmantle/nodeman/internal/auth/github"
 	"github.com/arcmantle/nodeman/internal/config"
 	"github.com/spf13/cobra"
 	"golang.org/x/term"
 )
+
+func init() {
+	auth.RegisterProvider("github", &github.GhImport{})
+	auth.RegisterProvider("github", github.NewDeviceFlow())
+}
 
 func newAuthCmd() *cobra.Command {
 	cmd := &cobra.Command{
@@ -26,6 +33,7 @@ in ~/.nodeman/config.json and injects auth for child processes when needed.`,
 	}
 
 	cmd.AddCommand(
+		newAuthLoginCmd(),
 		newAuthListCmd(),
 		newAuthSetCmd(),
 		newAuthTestCmd(),
@@ -34,6 +42,135 @@ in ~/.nodeman/config.json and injects auth for child processes when needed.`,
 		newAuthDisableCmd(),
 	)
 
+	return cmd
+}
+
+func newAuthLoginCmd() *cobra.Command {
+	var scope string
+	var methodFlag string
+
+	cmd := &cobra.Command{
+		Use:   "login <provider>",
+		Short: "Authenticate with a registry provider (e.g. github)",
+		Long: `Authenticate with a package registry using an OAuth flow.
+
+For GitHub, nodeman first tries to import a token from the gh CLI.
+If that fails or is declined, it falls back to GitHub's OAuth Device Flow.
+
+Use --method to skip straight to a specific method:
+  nodeman auth login github --scope @my-org --method "device flow"
+
+The --scope flag is required and specifies the npm scope (e.g. @my-org)
+that will be mapped to the provider's registry.
+
+Example:
+  nodeman auth login github --scope @my-org`,
+		Args: cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			providerName := strings.ToLower(args[0])
+
+			allProviders, ok := auth.ProvidersByName(providerName)
+			if !ok || len(allProviders) == 0 {
+				available := auth.RegisteredProviders()
+				if len(available) == 0 {
+					return fmt.Errorf("no auth providers are registered")
+				}
+				return fmt.Errorf("unknown provider %q; available: %s", providerName, strings.Join(available, ", "))
+			}
+
+			scope = auth.NormalizeScope(scope)
+			if scope == "" {
+				return fmt.Errorf("--scope is required (e.g. --scope @my-org)")
+			}
+
+			// Filter providers by --method if specified
+			providers := allProviders
+			if methodFlag != "" {
+				providers = nil
+				for _, p := range allProviders {
+					if strings.EqualFold(p.Method(), methodFlag) {
+						providers = append(providers, p)
+					}
+				}
+				if len(providers) == 0 {
+					methods := make([]string, 0, len(allProviders))
+					for _, p := range allProviders {
+						methods = append(methods, fmt.Sprintf("%q", p.Method()))
+					}
+					return fmt.Errorf("unknown method %q; available for %s: %s", methodFlag, providerName, strings.Join(methods, ", "))
+				}
+			}
+
+			var token string
+			var lastErr error
+			var method string
+
+			for _, p := range providers {
+				t, err := p.Login(scope)
+				if err == nil {
+					token = t
+					method = p.Method()
+					break
+				}
+				lastErr = err
+				if errors.Is(err, auth.ErrProviderUnavailable) || errors.Is(err, auth.ErrProviderDeclined) {
+					continue
+				}
+				return err
+			}
+
+			if token == "" {
+				if lastErr != nil {
+					return fmt.Errorf("all auth methods failed; last error: %w", lastErr)
+				}
+				return fmt.Errorf("no auth methods succeeded for provider %q", providerName)
+			}
+
+			registry := providers[0].Registry()
+
+			if err := auth.StoreToken(registry, token); err != nil {
+				return fmt.Errorf("storing token in keychain: %w", err)
+			}
+
+			cfg, err := config.Load()
+			if err != nil {
+				return err
+			}
+
+			updated := false
+			for index, entry := range cfg.PackageAuth.Registries {
+				if sameRegistryEntry(entry, registry, scope) {
+					cfg.PackageAuth.Registries[index].Registry = registry
+					cfg.PackageAuth.Registries[index].Scope = scope
+					cfg.PackageAuth.Registries[index].Enabled = true
+					cfg.PackageAuth.Registries[index].Method = method
+					updated = true
+					break
+				}
+			}
+			if !updated {
+				cfg.PackageAuth.Registries = append(cfg.PackageAuth.Registries, config.PackageAuthRegistry{
+					Registry: registry,
+					Scope:    scope,
+					Enabled:  true,
+					Method:   method,
+				})
+			}
+			cfg.PackageAuth.Enabled = true
+
+			if err := config.Save(cfg); err != nil {
+				return err
+			}
+
+			fmt.Printf("Authenticated with %s for scope %s.\n", method, scope)
+			fmt.Printf("Token stored for %s.\n", registry)
+			fmt.Println("nodeman will inject this token for package-manager subprocesses.")
+			return nil
+		},
+	}
+
+	cmd.Flags().StringVar(&scope, "scope", "", "Required npm scope to map to this registry (e.g. @my-org)")
+	cmd.Flags().StringVar(&methodFlag, "method", "", "Use a specific auth method (e.g. \"gh CLI\", \"device flow\")")
 	return cmd
 }
 
@@ -183,6 +320,9 @@ func newAuthListCmd() *cobra.Command {
 				if entry.Scope != "" {
 					detail += fmt.Sprintf(" (scope %s)", auth.NormalizeScope(entry.Scope))
 				}
+				if entry.Method != "" {
+					detail += fmt.Sprintf(" via %s", entry.Method)
+				}
 				fmt.Printf("  - [%s] %s\n", state, detail)
 			}
 
@@ -227,6 +367,7 @@ func newAuthSetCmd() *cobra.Command {
 					cfg.PackageAuth.Registries[index].Registry = registry
 					cfg.PackageAuth.Registries[index].Scope = scope
 					cfg.PackageAuth.Registries[index].Enabled = true
+					cfg.PackageAuth.Registries[index].Method = "manual"
 					updated = true
 					break
 				}
@@ -236,6 +377,7 @@ func newAuthSetCmd() *cobra.Command {
 					Registry: registry,
 					Scope:    scope,
 					Enabled:  true,
+					Method:   "manual",
 				})
 			}
 			cfg.PackageAuth.Enabled = true
@@ -266,19 +408,57 @@ func newAuthRemoveCmd() *cobra.Command {
 	var scope string
 
 	cmd := &cobra.Command{
-		Use:   "remove <registry>",
+		Use:   "remove [registry]",
 		Short: "Remove a registry auth mapping and optionally delete its keychain token",
-		Args:  cobra.ExactArgs(1),
+		Long: `Remove a registry auth mapping. If no registry is specified, an interactive
+list is shown to pick from. The keychain token is deleted if no other
+mapping references the same registry.`,
+		Args: cobra.MaximumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			registry, err := auth.NormalizeRegistry(args[0])
-			if err != nil {
-				return err
-			}
-			scope = auth.NormalizeScope(scope)
-
 			cfg, err := config.Load()
 			if err != nil {
 				return err
+			}
+			if len(cfg.PackageAuth.Registries) == 0 {
+				return fmt.Errorf("no auth mappings configured")
+			}
+
+			var registry string
+
+			if len(args) == 1 {
+				registry, err = auth.NormalizeRegistry(args[0])
+				if err != nil {
+					return err
+				}
+				scope = auth.NormalizeScope(scope)
+			} else {
+				// Interactive selection
+				fmt.Println("Select a registry mapping to remove:")
+				for i, entry := range cfg.PackageAuth.Registries {
+					label := entry.Registry
+					if entry.Scope != "" {
+						label += fmt.Sprintf(" (scope %s)", auth.NormalizeScope(entry.Scope))
+					}
+					if entry.Method != "" {
+						label += fmt.Sprintf(" via %s", entry.Method)
+					}
+					fmt.Printf("  %d) %s\n", i+1, label)
+				}
+				fmt.Print("Enter number: ")
+
+				scanner := bufio.NewScanner(os.Stdin)
+				if !scanner.Scan() {
+					return fmt.Errorf("no selection made")
+				}
+				input := strings.TrimSpace(scanner.Text())
+				var choice int
+				if _, err := fmt.Sscanf(input, "%d", &choice); err != nil || choice < 1 || choice > len(cfg.PackageAuth.Registries) {
+					return fmt.Errorf("invalid selection: %s", input)
+				}
+
+				selected := cfg.PackageAuth.Registries[choice-1]
+				registry = selected.Registry
+				scope = auth.NormalizeScope(selected.Scope)
 			}
 
 			filtered := make([]config.PackageAuthRegistry, 0, len(cfg.PackageAuth.Registries))
