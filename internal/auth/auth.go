@@ -227,8 +227,19 @@ func PrepareEnvironment(baseEnv []string) (*PreparedEnv, error) {
 	return prepared, nil
 }
 
+// TokenValidation describes the result of validating a token beyond just presence.
+type TokenValidation struct {
+	Valid   bool
+	Message string
+}
+
+// TokenValidatorFunc is called to validate a token for a specific registry.
+// Implementations should be lightweight (timeout quickly on network errors).
+type TokenValidatorFunc func(registry, token string) TokenValidation
+
 // DoctorStatus summarizes package auth config and keychain availability.
-func DoctorStatus(cfg *config.Config) (bool, string) {
+// If validate is non-nil, tokens are also checked for validity (e.g. expiry).
+func DoctorStatus(cfg *config.Config, validate TokenValidatorFunc) (bool, string) {
 	if cfg == nil {
 		return false, "config unavailable"
 	}
@@ -246,11 +257,20 @@ func DoctorStatus(cfg *config.Config) (bool, string) {
 
 	resolved := 0
 	missing := 0
+	invalid := 0
+	details := []string{}
 	for _, registry := range enabledRegistries {
-		_, err := backend.Get(keychainService, keychainAccount(registry))
+		token, err := backend.Get(keychainService, keychainAccount(registry))
 		switch {
 		case err == nil:
 			resolved++
+			if validate != nil {
+				result := validate(registry, token)
+				if !result.Valid {
+					invalid++
+					details = append(details, fmt.Sprintf("%s: %s", registry, result.Message))
+				}
+			}
 		case errors.Is(err, keyring.ErrNotFound):
 			missing++
 		default:
@@ -260,6 +280,10 @@ func DoctorStatus(cfg *config.Config) (bool, string) {
 
 	if missing > 0 {
 		return false, fmt.Sprintf("enabled with %d registry mapping(s), %d token(s) missing", len(enabledRegistries), missing)
+	}
+	if invalid > 0 {
+		return false, fmt.Sprintf("enabled with %d registry mapping(s), %d token(s) invalid: %s",
+			len(enabledRegistries), invalid, strings.Join(details, "; "))
 	}
 	return true, fmt.Sprintf("enabled with %d registry mapping(s)", resolved)
 }

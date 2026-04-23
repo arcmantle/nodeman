@@ -9,6 +9,7 @@ import (
 	"strings"
 
 	"github.com/arcmantle/nodeman/internal/auth"
+	ghauth "github.com/arcmantle/nodeman/internal/auth/github"
 	"github.com/arcmantle/nodeman/internal/config"
 	"github.com/arcmantle/nodeman/internal/discover"
 	"github.com/arcmantle/nodeman/internal/platform"
@@ -56,7 +57,14 @@ func runDoctor() error {
 	}
 
 	if cfg != nil {
-		ok, detail := auth.DoctorStatus(cfg)
+		validator := func(registry, token string) auth.TokenValidation {
+			if !ghauth.IsGitHubRegistry(registry) {
+				return auth.TokenValidation{Valid: true, Message: "skipped (not a GitHub registry)"}
+			}
+			status := ghauth.ValidateToken(token)
+			return auth.TokenValidation{Valid: status.Valid, Message: status.Message}
+		}
+		ok, detail := auth.DoctorStatus(cfg, validator)
 		results = append(results, checkResult{"Package auth", ok, detail})
 	}
 
