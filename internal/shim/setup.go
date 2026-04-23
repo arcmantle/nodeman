@@ -50,6 +50,14 @@ func Setup() error {
 				return fmt.Errorf("creating shim %s: %w", name, err)
 			}
 		}
+
+		// On Windows, also create a .cmd wrapper so callers using
+		// "npm.cmd", "npx.cmd", etc. are intercepted by nodeman.
+		if runtime.GOOS == "windows" {
+			if err := writeCmdShim(shimsDir, name); err != nil {
+				return fmt.Errorf("creating .cmd shim for %s: %w", name, err)
+			}
+		}
 	}
 
 	// Also create a nodeman symlink/copy in the shims dir for convenience
@@ -59,6 +67,11 @@ func Setup() error {
 		if err := os.Link(self, nodeman); err != nil {
 			if err := copyFile(self, nodeman); err != nil {
 				return fmt.Errorf("creating nodeman shim: %w", err)
+			}
+		}
+		if runtime.GOOS == "windows" {
+			if err := writeCmdShim(shimsDir, "nodeman"); err != nil {
+				return fmt.Errorf("creating .cmd shim for nodeman: %w", err)
 			}
 		}
 	}
@@ -159,6 +172,10 @@ func SyncShims() (int, int, error) {
 		// If shim exists, check if it's up to date (same file as nodeman)
 		if existingInfo, err := os.Stat(shimPath); err == nil {
 			if os.SameFile(sourceInfo, existingInfo) {
+				// .exe is current, but ensure .cmd wrapper exists on Windows
+				if runtime.GOOS == "windows" {
+					_ = writeCmdShim(shimsDir, name)
+				}
 				continue // already points to the current nodeman binary
 			}
 			// Stale shim — remove and recreate
@@ -171,6 +188,10 @@ func SyncShims() (int, int, error) {
 				continue
 			}
 		}
+		// On Windows, also create a .cmd wrapper
+		if runtime.GOOS == "windows" {
+			_ = writeCmdShim(shimsDir, name)
+		}
 		synced++
 	}
 
@@ -182,7 +203,10 @@ func SyncShims() (int, int, error) {
 			}
 
 			entryName := entry.Name()
-			if runtime.GOOS == "windows" && !strings.HasSuffix(strings.ToLower(entryName), ".exe") {
+			lowerName := strings.ToLower(entryName)
+			if runtime.GOOS == "windows" &&
+				!strings.HasSuffix(lowerName, ".exe") &&
+				!strings.HasSuffix(lowerName, ".cmd") {
 				continue
 			}
 
@@ -251,6 +275,15 @@ func reportPathStatus(shimsDir string) {
 			}
 		}
 	}
+}
+
+// writeCmdShim creates a .cmd wrapper script that forwards to the .exe shim.
+// This ensures Windows callers that invoke e.g. "npm.cmd" are still intercepted
+// by nodeman. The wrapper simply delegates to the co-located .exe of the same name.
+func writeCmdShim(shimsDir, name string) error {
+	cmdPath := filepath.Join(shimsDir, name+".cmd")
+	content := fmt.Sprintf("@\"%%~dp0%s.exe\" %%*\r\n", name)
+	return os.WriteFile(cmdPath, []byte(content), 0o755)
 }
 
 func copyFile(src, dst string) error {
