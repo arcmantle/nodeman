@@ -217,6 +217,8 @@ func PrepareEnvironment(baseEnv []string) (*PreparedEnv, error) {
 
 	prepared.Env = setEnv(prepared.Env, "NPM_CONFIG_USERCONFIG", f.Name())
 	prepared.Env = setEnv(prepared.Env, "npm_config_userconfig", f.Name())
+	prepared.Env = setEnv(prepared.Env, "PNPM_CONFIG_USERCONFIG", f.Name())
+	prepared.Env = setEnv(prepared.Env, "pnpm_config_userconfig", f.Name())
 	prepared.cleanup = func() error {
 		if err := os.Remove(f.Name()); err != nil && !os.IsNotExist(err) {
 			return err
@@ -376,7 +378,7 @@ func userConfigPath(baseEnv []string) string {
 		if !ok {
 			continue
 		}
-		if strings.EqualFold(key, "npm_config_userconfig") && strings.TrimSpace(value) != "" {
+		if (strings.EqualFold(key, "npm_config_userconfig") || strings.EqualFold(key, "pnpm_config_userconfig")) && strings.TrimSpace(value) != "" {
 			return value
 		}
 	}

@@ -94,6 +94,23 @@ func TestSetEnv(t *testing.T) {
 	}
 }
 
+func TestSetEnvReplacesPnpmUserconfig(t *testing.T) {
+	base := []string{"PATH=/bin", "pnpm_config_userconfig=/old/path", "HOME=/tmp"}
+	updated := setEnv(base, "PNPM_CONFIG_USERCONFIG", "/new/path")
+
+	want := []string{"PATH=/bin", "PNPM_CONFIG_USERCONFIG=/new/path", "HOME=/tmp"}
+	if !reflect.DeepEqual(updated, want) {
+		t.Fatalf("setEnv() = %#v, want %#v", updated, want)
+	}
+}
+
+func TestUserConfigPathPrefersPnpmEnv(t *testing.T) {
+	got := userConfigPath([]string{"HOME=/tmp", "pnpm_config_userconfig=/pnpm/path"})
+	if got != "/pnpm/path" {
+		t.Fatalf("userConfigPath() = %q, want %q", got, "/pnpm/path")
+	}
+}
+
 func TestIsPackageManagerCommand(t *testing.T) {
 	for _, command := range []string{"npm", "pnpm", "yarn", "corepack"} {
 		if !IsPackageManagerCommand(command) {
