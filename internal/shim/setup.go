@@ -18,62 +18,9 @@ import (
 // It copies (or hardlinks) the currently running nodeman binary as node, npm, npx, corepack.
 // It also scans for existing Node.js installations and validates PATH ordering.
 func Setup() error {
-	if err := platform.EnsureDirs(); err != nil {
-		return err
-	}
-
-	shimsDir, err := platform.ShimsDir()
+	shimsDir, err := RefreshCoreShims()
 	if err != nil {
 		return err
-	}
-
-	// Find the currently running binary
-	self, err := os.Executable()
-	if err != nil {
-		return fmt.Errorf("cannot find own executable: %w", err)
-	}
-	self, err = filepath.EvalSymlinks(self)
-	if err != nil {
-		return fmt.Errorf("resolving executable path: %w", err)
-	}
-
-	suffix := platform.ExeSuffix()
-	for _, name := range platform.ShimNames() {
-		shimPath := filepath.Join(shimsDir, name+suffix)
-
-		// Remove existing shim
-		os.Remove(shimPath)
-
-		// Try hardlink first (most efficient), fall back to copy
-		if err := os.Link(self, shimPath); err != nil {
-			if err := copyFile(self, shimPath); err != nil {
-				return fmt.Errorf("creating shim %s: %w", name, err)
-			}
-		}
-
-		// On Windows, also create a .cmd wrapper so callers using
-		// "npm.cmd", "npx.cmd", etc. are intercepted by nodeman.
-		if runtime.GOOS == "windows" {
-			if err := writeCmdShim(shimsDir, name); err != nil {
-				return fmt.Errorf("creating .cmd shim for %s: %w", name, err)
-			}
-		}
-	}
-
-	// Also create a nodeman symlink/copy in the shims dir for convenience
-	nodeman := filepath.Join(shimsDir, "nodeman"+suffix)
-	if !samePath(self, nodeman) {
-		os.Remove(nodeman)
-		if err := os.Link(self, nodeman); err != nil {
-			if err := copyFile(self, nodeman); err != nil {
-				return fmt.Errorf("creating nodeman shim: %w", err)
-			}
-		}
-		if runtime.GOOS == "windows" {
-			if err := writeCmdShim(shimsDir, "nodeman"); err != nil {
-				return fmt.Errorf("creating .cmd shim for nodeman: %w", err)
-			}
-		}
 	}
 
 	fmt.Println("Shims created in", shimsDir)
@@ -95,6 +42,69 @@ func Setup() error {
 	}
 
 	return nil
+}
+
+// RefreshCoreShims recreates the built-in nodeman shims from the current executable.
+func RefreshCoreShims() (string, error) {
+	if err := platform.EnsureDirs(); err != nil {
+		return "", err
+	}
+
+	shimsDir, err := platform.ShimsDir()
+	if err != nil {
+		return "", err
+	}
+
+	// Find the currently running binary
+	self, err := os.Executable()
+	if err != nil {
+		return "", fmt.Errorf("cannot find own executable: %w", err)
+	}
+	self, err = filepath.EvalSymlinks(self)
+	if err != nil {
+		return "", fmt.Errorf("resolving executable path: %w", err)
+	}
+
+	suffix := platform.ExeSuffix()
+	for _, name := range platform.ShimNames() {
+		shimPath := filepath.Join(shimsDir, name+suffix)
+
+		// Remove existing shim
+		os.Remove(shimPath)
+
+		// Try hardlink first (most efficient), fall back to copy
+		if err := os.Link(self, shimPath); err != nil {
+			if err := copyFile(self, shimPath); err != nil {
+				return "", fmt.Errorf("creating shim %s: %w", name, err)
+			}
+		}
+
+		// On Windows, also create a .cmd wrapper so callers using
+		// "npm.cmd", "npx.cmd", etc. are intercepted by nodeman.
+		if runtime.GOOS == "windows" {
+			if err := writeCmdShim(shimsDir, name); err != nil {
+				return "", fmt.Errorf("creating .cmd shim for %s: %w", name, err)
+			}
+		}
+	}
+
+	// Also create a nodeman symlink/copy in the shims dir for convenience
+	nodeman := filepath.Join(shimsDir, "nodeman"+suffix)
+	if !samePath(self, nodeman) {
+		os.Remove(nodeman)
+		if err := os.Link(self, nodeman); err != nil {
+			if err := copyFile(self, nodeman); err != nil {
+				return "", fmt.Errorf("creating nodeman shim: %w", err)
+			}
+		}
+		if runtime.GOOS == "windows" {
+			if err := writeCmdShim(shimsDir, "nodeman"); err != nil {
+				return "", fmt.Errorf("creating .cmd shim for nodeman: %w", err)
+			}
+		}
+	}
+
+	return shimsDir, nil
 }
 
 // SyncShims scans the active Node.js version's bin directory and creates

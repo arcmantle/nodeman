@@ -16,6 +16,7 @@ import (
 	"time"
 
 	"github.com/arcmantle/nodeman/internal/httputil"
+	"github.com/arcmantle/nodeman/internal/shim"
 	"github.com/spf13/cobra"
 )
 
@@ -115,13 +116,29 @@ func newUpgradeCmd(currentVersion string) *cobra.Command {
 			}
 
 			if runtime.GOOS == "windows" {
-				fmt.Printf("Upgrade to %s scheduled. Restart your terminal and run 'nodeman --version'.\n", release.TagName)
+				fmt.Printf("Upgrade to %s scheduled. Core shims will refresh automatically after the new binary is swapped in.\n", release.TagName)
 			} else {
+				if err := refreshShimsAfterUpgrade(); err != nil {
+					fmt.Fprintf(os.Stderr, "Warning: upgraded nodeman but failed to refresh shims automatically: %v\n", err)
+					fmt.Fprintln(os.Stderr, "Run 'nodeman setup' to refresh your shims.")
+				}
 				fmt.Printf("Successfully upgraded to %s\n", release.TagName)
 			}
 			return nil
 		},
 	}
+}
+
+func refreshShimsAfterUpgrade() error {
+	if _, err := shim.RefreshCoreShims(); err != nil {
+		return err
+	}
+
+	if _, _, err := shim.SyncShims(); err != nil {
+		return err
+	}
+
+	return nil
 }
 
 func selectReleaseAsset(assets []githubAsset) (githubAsset, error) {
@@ -269,7 +286,7 @@ func replaceCurrentExecutable(execPath, newBinaryPath string) error {
 	}
 
 	script := fmt.Sprintf(
-		`$target='%s'; $new='%s'; for($i=0; $i -lt 120; $i++){ try { if(-not (Test-Path -LiteralPath $new)) { exit 1 }; Move-Item -LiteralPath $new -Destination $target -Force; exit 0 } catch { Start-Sleep -Milliseconds 250 } }; exit 1`,
+		`$target='%s'; $new='%s'; for($i=0; $i -lt 120; $i++){ try { if(-not (Test-Path -LiteralPath $new)) { exit 1 }; Move-Item -LiteralPath $new -Destination $target -Force; Start-Process -FilePath $target -ArgumentList 'setup' -WindowStyle Hidden; exit 0 } catch { Start-Sleep -Milliseconds 250 } }; exit 1`,
 		strings.ReplaceAll(execPath, "'", "''"),
 		strings.ReplaceAll(stagedPath, "'", "''"),
 	)
